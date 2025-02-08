@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -29,12 +28,13 @@ import { Badge } from "@/components/ui/badge";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import CreateFeedbackProjectDialog from "./CreateFeedbackProjectDialog";
 import EditFeedbackProjectDialog from "./EditFeedbackProjectDialog";
+import { FeedbackProject } from "./types";
 
 const FeedbackProjectList = () => {
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<FeedbackProject[]>([]);
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [editProject, setEditProject] = useState<any | null>(null);
+  const [editProject, setEditProject] = useState<FeedbackProject | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
 
