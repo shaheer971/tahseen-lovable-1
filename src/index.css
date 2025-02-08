@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@1,900,700,500,300,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;  /* Softer white */
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 207 100% 50%;  /* #0091FF */
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --radius: 0.5rem;
+    --gradient-start: #0086EB;
+    --gradient-end: #0086EB;
+  }
+
+  .dark {
+    --background: 0 0% 6.7%;  /* #111111 */
+    --foreground: 0 0% 98%;
+    --card: 0 0% 8.7%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 8.7%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 207 100% 50%;  /* #0091FF */
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 240 4.9% 83.9%;
+    --gradient-start: #0086EB;
+    --gradient-end: #0086EB;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-jakarta antialiased;
+  }
+}
+
+@layer components {
+  .btn-gradient {
+    @apply bg-gradient-to-r from-[#0086EB] to-[#0086EB] text-white hover:opacity-90;
+  }
+  
+  .progress-gradient {
+    @apply bg-gradient-to-r from-[#0086EB] to-[#0086EB];
+  }
+
+  .dark .calendar {
+    --cal-bg: theme('colors.background');
+    --cal-border: theme('colors.border');
+    --cal-header-bg: theme('colors.card.DEFAULT');
+    --cal-day-bg: theme('colors.card.DEFAULT');
+    --cal-day-hover: theme('colors.accent.DEFAULT');
+    --cal-day-selected: theme('colors.primary.DEFAULT');
+    --cal-day-disabled: theme('colors.muted.DEFAULT');
+    --cal-day-range: rgba(0, 145, 255, 0.1);
+  }
+
+  .dark .board-view {
+    --board-bg: theme('colors.background');
+    --board-column-bg: theme('colors.card.DEFAULT');
+    --board-item-bg: theme('colors.accent.DEFAULT');
+  }
+
+  .dark .view-toggle {
+    @apply bg-transparent border-border text-foreground;
+  }
+
+  .dark .view-toggle [data-state='on'] {
+    @apply bg-primary text-primary-foreground;
+  }
+}
+
+/* Custom Utilities */
+.font-jakarta {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+.font-satoshi {
+  font-family: 'Satoshi', sans-serif;
+}
+
+/* Sheet styles */
+.task-sheet {
+  @apply fixed right-0 top-0 h-full w-[400px] sm:w-[540px] overflow-y-auto bg-background border-l border-border shadow-lg;
+}
+
+.task-sheet-content {
+  @apply h-[calc(100vh-4rem)] overflow-y-auto p-6;
+}
+
+/* Project Card */
+.project-card {
+  @apply bg-card border rounded-lg p-6 hover:shadow-md transition-shadow;
+}
+
+.project-card-header {
+  @apply flex items-start justify-between mb-4;
+}
+
+.project-card-title {
+  @apply text-xl font-semibold text-foreground;
+}
+
+.project-card-description {
+  @apply text-sm text-muted-foreground mb-4;
+}
+
+.project-card-meta {
+  @apply flex items-center gap-4 text-sm text-muted-foreground;
+}
+
+/* Task Type Badge */
+.task-type-badge {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+}
+
+.task-type-todo {
+  @apply bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300;
+}
+
+.task-type-recurring {
+  @apply bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300;
+}
