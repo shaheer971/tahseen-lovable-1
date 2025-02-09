@@ -30,6 +30,19 @@ import CreateFeedbackProjectDialog from "./CreateFeedbackProjectDialog";
 import EditFeedbackProjectDialog from "./EditFeedbackProjectDialog";
 import { FeedbackProject } from "./types";
 
+interface FeedbackProjectResponse {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  feedback: { count: number }[];
+  is_public: boolean;
+  public_url: string;
+}
+
 const FeedbackProjectList = () => {
   const [projects, setProjects] = useState<FeedbackProject[]>([]);
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
@@ -38,7 +51,7 @@ const FeedbackProjectList = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  const { data: feedbackProjects = [], isLoading } = useQuery({
+  const { data: feedbackProjects = [], isLoading } = useQuery<FeedbackProjectResponse[]>({
     queryKey: ['feedback-projects'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -50,7 +63,7 @@ const FeedbackProjectList = () => {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data;
+      return data as FeedbackProjectResponse[];
     },
   });
 

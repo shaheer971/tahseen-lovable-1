@@ -12,6 +12,26 @@ interface FeedbackListProps {
   projectId: string;
 }
 
+interface FeedbackVote {
+  id: string;
+  user_id: string;
+}
+
+interface FeedbackItem {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  type: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  user_id: string;
+  view_count: number;
+  votes_count: number;
+  feedback_votes: FeedbackVote[];
+}
+
 const FeedbackList = ({ projectId }: FeedbackListProps) => {
   const { session } = useAuth();
   const queryClient = useQueryClient();
@@ -82,7 +102,7 @@ const FeedbackList = ({ projectId }: FeedbackListProps) => {
 
   const handleVote = (
     feedbackId: string,
-    votes: any[],
+    votes: FeedbackVote[],
     currentUserId: string
   ) => {
     const userVote = votes.find((vote) => vote.user_id === currentUserId);
@@ -113,7 +133,7 @@ const FeedbackList = ({ projectId }: FeedbackListProps) => {
       </div>
 
       <div className="grid gap-4">
-        {feedback.map((item: any) => (
+        {feedback.map((item: FeedbackItem) => (
           <div
             key={item.id}
             className="bg-card border rounded-lg p-4 shadow-sm space-y-2"
@@ -146,7 +166,7 @@ const FeedbackList = ({ projectId }: FeedbackListProps) => {
                     <ThumbsUp
                       className={`h-4 w-4 mr-2 ${
                         item.feedback_votes.some(
-                          (vote: any) => vote.user_id === session.user.id
+                          (vote: FeedbackVote) => vote.user_id === session.user.id
                         )
                           ? "fill-current"
                           : ""
