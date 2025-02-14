@@ -1,429 +1,275 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { format } from "date-fns";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/components/ui/use-toast";
 import { Task } from "./types";
-import TaskSheet from "./TaskSheet";
-import { format, parse } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { LayoutList, FolderKanban, Plus, Tag, ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
-import { cleanupCompletedTodoTasks, getRecurringTasksForToday, cleanupOldRecurringCompletions, createCompletedRecurringTaskInstance } from "@/utils/taskCleanup";
-
-const getPriorityBadgeVariant = (priority: "Low" | "Medium" | "High"): "outline" | "default" | "destructive" | "secondary" => {
-  switch (priority) {
-    case "High":
-      return "destructive";
-    case "Medium":
-      return "secondary";
-    case "Low":
-      return "outline";
-    default:
-      return "outline";
-  }
-};
-
-const mapTaskPriority = (priority: string): "Low" | "Medium" | "High" => {
-  switch (priority.toLowerCase()) {
-    case "low":
-      return "Low";
-    case "medium":
-      return "Medium";
-    case "high":
-      return "High";
-    default:
-      return "Medium";
-  }
-};
+import { Plus } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Progress } from "@/components/ui/progress";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import CreateTaskDialog from "./CreateTaskDialog";
+import TaskSheet from "./TaskSheet";
+import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 const TaskList = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [view, setView] = useState<"all" | "projects">("all");
-  const [todoCollapsed, setTodoCollapsed] = useState(false);
-  const [doneCollapsed, setDoneCollapsed] = useState(true);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
   useEffect(() => {
-    const now = new Date();
-    const midnight = new Date(now);
-    midnight.setHours(24, 0, 0, 0);
-    const msUntilMidnight = midnight.getTime() - now.getTime();
-
-    const cleanupTimer = setTimeout(() => {
-      cleanupCompletedTodoTasks();
-      cleanupOldRecurringCompletions();
-      setInterval(() => {
-        cleanupCompletedTodoTasks();
-        cleanupOldRecurringCompletions();
-      }, 24 * 60 * 60 * 1000);
-    }, msUntilMidnight);
-
-    return () => {
-      clearTimeout(cleanupTimer);
-    };
+    fetchTasks();
   }, []);
 
-  const fetchTasks = useCallback(async () => {
+  const validatePriority = (priority: string): "Low" | "Medium" | "High" => {
+    const validPriorities = ["Low", "Medium", "High"];
+    const normalizedPriority = priority.charAt(0).toUpperCase() + priority.slice(1).toLowerCase();
+    return validPriorities.includes(normalizedPriority) 
+      ? normalizedPriority as "Low" | "Medium" | "High"
+      : "Medium";
+  };
+
+  const validateType = (type: string): "Todo" | "Recurring" | "Project" => {
+    const validTypes = ["Todo", "Recurring", "Project"];
+    const normalizedType = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
+    return validTypes.includes(normalizedType)
+      ? normalizedType as "Todo" | "Recurring" | "Project"
+      : "Todo";
+  };
+
+  const fetchTasks = async () => {
     try {
-      let query = supabase
+      if (!session?.user?.id) return;
+
+      const { data, error } = await supabase
         .from("tasks")
         .select(`
           *,
           projects (
             name
           )
-        `);
+        `)
+        .eq("user_id", session.user.id)
+        .order("completed", { ascending: true })
+        .order("priority", { ascending: false })
+        .order("position");
 
-      if (view === "projects") {
-        query = query
-          .not("project_id", "is", null)
-          .eq("completed", false);
-      } else {
-        const { data: allTasks, error: tasksError } = await query;
-        if (tasksError) throw tasksError;
+      if (error) throw error;
 
-        const todoTasks = (allTasks || []).filter(task => task.type === "Todo");
-        const today = new Date();
-        const dayOfWeek = today.getDay().toString();
-        const recurringTasks = (allTasks || [])
-          .filter(task => 
-            task.type === "Recurring" && 
-            task.recurring_days?.includes(dayOfWeek)
-          );
+      // Transform the data to ensure correct types
+      const typedTasks: Task[] = (data || []).map(task => ({
+        ...task,
+        priority: validatePriority(task.priority),
+        type: validateType(task.type),
+        completed: task.completed || false,
+        recurring_days: task.recurring_days || [],
+        description: task.description || "",
+        project_id: task.project_id || null,
+        projects: task.projects || null
+      }));
 
-        const tasksWithProjects = [...todoTasks, ...recurringTasks].map((task) => ({
-          ...task,
-          type: task.type
-        })) as Task[];
-
-        const sortedTasks = sortTasks(tasksWithProjects);
-        
-        setTasks(sortedTasks);
-        return;
-      }
-
-      const { data: projectTasks, error: projectError } = await query;
-      if (projectError) throw projectError;
-
-      const groupedTasks = (projectTasks || []).reduce((acc, task) => {
-        const projectId = task.project_id || 'no_project';
-        if (!acc[projectId]) {
-          acc[projectId] = [];
-        }
-        acc[projectId].push(task);
-        return acc;
-      }, {} as Record<string, Task[]>);
-
-      Object.keys(groupedTasks).forEach(projectId => {
-        groupedTasks[projectId].sort((a, b) => {
-          const priorityOrder = { High: 0, Medium: 1, Low: 2 };
-          return (priorityOrder[a.priority as keyof typeof priorityOrder] || 3) - 
-                 (priorityOrder[b.priority as keyof typeof priorityOrder] || 3);
-        });
-      });
-
-      const sortedProjectTasks = Object.values(groupedTasks).flat();
-      setTasks(sortedProjectTasks);
+      setTasks(typedTasks);
     } catch (error) {
       console.error("Error fetching tasks:", error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch tasks",
-        variant: "destructive",
-      });
     }
-  }, [toast, view]);
-
-  useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date();
-      if (now.getHours() === 0 && now.getMinutes() === 0) {
-        fetchTasks();
-      }
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [fetchTasks]);
-
-  const subscribeToTasks = useCallback(() => {
-    const channel = supabase
-      .channel("tasks")
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => {
-        fetchTasks();
-      })
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
-  }, [fetchTasks]);
-
-  useEffect(() => {
-    subscribeToTasks();
-  }, [subscribeToTasks]);
+  };
 
   const handleToggleComplete = async (taskId: string, completed: boolean) => {
     try {
-      const task = tasks.find(t => t.id === taskId);
-      if (!task) return;
+      await supabase
+        .from("tasks")
+        .update({ completed })
+        .eq("id", taskId);
 
-      if (task.type === "Recurring") {
-        if (completed) {
-          await createCompletedRecurringTaskInstance(taskId, task.user_id);
-        } else {
-          const today = new Date().toISOString().split('T')[0];
-          await supabase
-            .from('recurring_task_completions')
-            .delete()
-            .match({
-              task_id: taskId,
-              completed_date: today
-            });
-        }
-      } else {
-        const { error } = await supabase
-          .from("tasks")
-          .update({ completed })
-          .eq("id", taskId);
-
-        if (error) throw error;
-      }
-
-      setTasks(prev =>
-        prev.map(t =>
-          t.id === taskId ? { ...t, completed } : t
+      // Optimistically update the UI
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task.id === taskId ? { ...task, completed } : task
         )
       );
+
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (error) {
-      console.error("Error updating task:", error);
+      console.error("Error updating task completion:", error);
       toast({
         title: "Error",
-        description: "Failed to update task",
+        description: "Failed to update task completion",
         variant: "destructive",
       });
     }
   };
 
-  const handleEditTask = (task: Task) => {
-    setSelectedTask(task);
-    setIsSheetOpen(true);
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const { error } = await supabase
+        .from("tasks")
+        .delete()
+        .eq("id", taskId);
+
+      if (error) throw error;
+
+      // Optimistically update the UI
+      setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
+
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      setIsSheetOpen(false);
+    } catch (error) {
+      console.error("Error deleting task:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete task",
+        variant: "destructive",
+      });
+    }
   };
 
-  const sortTasks = (tasks: Task[]) => {
-    const priorityOrder = { High: 0, Medium: 1, Low: 2 };
-    return [...tasks].sort((a, b) => {
-      if (a.completed !== b.completed) {
-        return a.completed ? 1 : -1;
-      }
-      return (priorityOrder[a.priority as keyof typeof priorityOrder] || 3) - 
-             (priorityOrder[b.priority as keyof typeof priorityOrder] || 3);
-    });
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "High":
+        return "border-red-500 text-red-500";
+      case "Medium":
+        return "border-yellow-500 text-yellow-500";
+      case "Low":
+        return "border-green-500 text-green-500";
+      default:
+        return "";
+    }
   };
 
-  const handleAddTask = (task: any) => {
-    const mappedTask: Task = {
-      ...task,
-      priority: mapTaskPriority(task.priority),
-      type: task.type as "Todo" | "Recurring" | "Project"
-    };
-    setTasks(prev => [...prev, mappedTask]);
+  const onDragEnd = async (result: any) => {
+    if (!result.destination) return;
+
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+
+    // Reorder the tasks array
+    const reorderedTasks = Array.from(tasks);
+    const [movedTask] = reorderedTasks.splice(sourceIndex, 1);
+    reorderedTasks.splice(destinationIndex, 0, movedTask);
+
+    // Optimistically update the UI
+    setTasks(reorderedTasks);
+
+    try {
+      // Update the position of each task in the database
+      const updates = reorderedTasks.map((task, index) =>
+        supabase
+          .from("tasks")
+          .update({ position: index })
+          .eq("id", task.id)
+      );
+
+      // Wait for all updates to complete
+      await Promise.all(updates);
+
+      // Invalidate the query to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } catch (error) {
+      console.error("Error updating task positions:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update task positions",
+        variant: "destructive",
+      });
+      // If there's an error, revert the UI to the previous state
+      fetchTasks();
+    }
   };
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-none p-1 space-y-1">
-        <div className="flex justify-between items-center">
-          <h2 className="text-lg font-medium">{view === "all" ? "All Tasks" : "Project Tasks"}</h2>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
-              <Button
-                variant={view === "all" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setView("all")}
-              >
-                <LayoutList className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={view === "projects" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setView("projects")}
-              >
-                <FolderKanban className="h-4 w-4" />
-              </Button>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold tracking-tight">Tasks</h2>
+        <Button onClick={() => setIsCreateDialogOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          New Task
+        </Button>
+      </div>
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="tasks">
+          {(provided) => (
+            <div
+              {...provided.droppableProps}
+              ref={provided.innerRef}
+              className="space-y-2"
+            >
+              <ScrollArea className="h-[calc(100vh-350px)]">
+                {tasks.map((task, index) => (
+                  <Draggable key={task.id} draggableId={task.id} index={index}>
+                    {(provided) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        className={cn(
+                          "bg-card border rounded-lg shadow-sm p-4 hover:bg-accent/50 cursor-grab transition-colors",
+                          task.completed && "opacity-50"
+                        )}
+                        onClick={() => {
+                          setSelectedTask(task);
+                          setIsSheetOpen(true);
+                        }}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-1">
+                            <h3 className="text-base font-semibold">{task.name}</h3>
+                            {task.description && (
+                              <p className="text-sm text-muted-foreground">
+                                {task.description}
+                              </p>
+                            )}
+                            {task.project_id && task.projects?.name && (
+                              <Badge variant="secondary">{task.projects.name}</Badge>
+                            )}
+                          </div>
+                          <Checkbox
+                            checked={task.completed}
+                            onCheckedChange={(checked) => {
+                              handleToggleComplete(task.id, checked as boolean);
+                            }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <div>
+                              Due Date: {format(new Date(task.due_date), "MMM d, yyyy")}
+                            </div>
+                            <div>
+                              Time: {format(new Date(`2000-01-01T${task.due_time}`), "h:mm a")}
+                            </div>
+                          </div>
+                          <Badge variant="outline" className={getPriorityColor(task.priority)}>
+                            {task.priority}
+                          </Badge>
+                        </div>
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </ScrollArea>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setSelectedTask(null);
-                setIsSheetOpen(true);
-              }}
-              className="w-10 h-10 p-0"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-auto">
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Button
-              variant="ghost"
-              className="w-full flex justify-between items-center p-2 hover:bg-accent/50"
-              onClick={() => setTodoCollapsed(!todoCollapsed)}
-            >
-              <div className="flex items-center gap-2">
-                {todoCollapsed ? <ChevronRight className="h-2 w-2" /> : <ChevronDown className="h-4 w-4" />}
-                <span className="font-semibold">To Do</span>
-                <Badge variant="secondary" className="ml-2">
-                  {tasks.filter(task => !task.completed).length}
-                </Badge>
-              </div>
-            </Button>
-            
-            {!todoCollapsed && (
-              <div className="space-y-6">
-                {sortTasks(tasks.filter(task => !task.completed)).map((task) => (
-                  <div key={task.id} className="group">
-                    <div className="flex items-center justify-between py-3">
-                      <div className="flex items-center space-x-4">
-                        <Checkbox
-                          checked={task.completed}
-                          onCheckedChange={(checked) =>
-                            handleToggleComplete(task.id, checked as boolean)
-                          }
-                        />
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <span className="font-medium">{task.name}</span>
-                            {task.type === 'Todo' && (
-                              <>
-                                <span className="text-sm text-muted-foreground">
-                                  {format(new Date(task.due_date), "MMM d")}
-                                </span>
-                                <span className="text-sm text-muted-foreground">
-                                  {format(parse(task.due_time, 'HH:mm:ss', new Date()), 'h a')}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Badge variant={task.type === 'Recurring' ? 'secondary' : 'outline'}>
-                              {task.type}
-                            </Badge>
-                            <Badge variant={getPriorityBadgeVariant(task.priority)}>
-                              {task.priority}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="opacity-0 group-hover:opacity-100"
-                        onClick={() => {
-                          setSelectedTask(task);
-                          setIsSheetOpen(true);
-                        }}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <Separator />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Button
-              variant="ghost"
-              className="w-full flex justify-between items-center p-2 hover:bg-accent/50"
-              onClick={() => setDoneCollapsed(!doneCollapsed)}
-            >
-              <div className="flex items-center gap-2">
-                {doneCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                <span className="font-semibold">Done</span>
-                <Badge variant="secondary" className="ml-2">
-                  {tasks.filter(task => task.completed).length}
-                </Badge>
-              </div>
-            </Button>
-            
-            {!doneCollapsed && (
-              <div className="space-y-6">
-                {sortTasks(tasks.filter(task => task.completed)).map((task) => (
-                  <div key={task.id} className="group">
-                    <div className="flex items-center justify-between py-3">
-                      <div className="flex items-center space-x-4">
-                        <Checkbox
-                          checked={task.completed}
-                          onCheckedChange={(checked) =>
-                            handleToggleComplete(task.id, checked as boolean)
-                          }
-                        />
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <span className="font-medium">{task.name}</span>
-                            {task.type === 'Todo' && (
-                              <>
-                                <span className="text-sm text-muted-foreground">
-                                  {format(new Date(task.due_date), "MMM d")}
-                                </span>
-                                <span className="text-sm text-muted-foreground">
-                                  {format(parse(task.due_time, 'HH:mm:ss', new Date()), 'h a')}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Badge variant={task.type === 'Recurring' ? 'secondary' : 'outline'}>
-                              {task.type}
-                            </Badge>
-                            <Badge variant={getPriorityBadgeVariant(task.priority)}>
-                              {task.priority}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="opacity-0 group-hover:opacity-100"
-                        onClick={() => {
-                          setSelectedTask(task);
-                          setIsSheetOpen(true);
-                        }}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <Separator />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
+          )}
+        </Droppable>
+      </DragDropContext>
+      <CreateTaskDialog
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+      />
       <TaskSheet
         open={isSheetOpen}
         onOpenChange={setIsSheetOpen}
         task={selectedTask}
         onTaskUpdate={fetchTasks}
-        onTaskDelete={fetchTasks}
+        onTaskDelete={handleDeleteTask}
       />
     </div>
   );
