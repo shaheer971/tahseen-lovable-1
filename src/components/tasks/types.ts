@@ -1,14 +1,15 @@
+
 export interface Task {
   id: string;
   user_id: string;
   name: string;
   description?: string;
   priority: "Low" | "Medium" | "High";
-  type: "Todo" | "Recurring";  // Updated to just Todo and Recurring
+  type: "Todo" | "Recurring" | "Project";  // Updated to include "Project"
   due_date: string;
   due_time: string;
   completed: boolean;
-  position: number;
+  position: number;  // Changed from order to position
   created_at: string;
   updated_at: string;
   project_id?: string | null;
@@ -16,4 +17,5 @@ export interface Task {
   projects?: {
     name: string;
   } | null;
+  status?: "todo" | "in-progress" | "done";
 }

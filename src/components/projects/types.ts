@@ -1,3 +1,4 @@
+
 export interface Project {
   id: string;
   user_id: string;
@@ -17,7 +18,7 @@ export interface ProjectTask {
   name: string;
   description: string | null;
   priority: "Low" | "Medium" | "High";
-  type: "Todo" | "Project" | "Recurring";
+  type: "Todo" | "Recurring" | "Project";
   status: "todo" | "in-progress" | "done";
   due_date: string;
   due_time: string;

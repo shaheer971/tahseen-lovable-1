@@ -23,6 +23,9 @@ interface CreateProjectTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialStatus?: "todo" | "in-progress" | "done";
+  defaultValues?: {
+    status?: "todo" | "in-progress" | "done";
+  };
 }
 
 type FormData = {
@@ -33,11 +36,12 @@ type FormData = {
   due_time: string;
 };
 
-const CreateProjectTaskDialog = ({ 
-  projectId, 
-  open, 
+const CreateProjectTaskDialog = ({
+  projectId,
+  open,
   onOpenChange,
-  initialStatus = "todo" 
+  initialStatus = "todo",
+  defaultValues
 }: CreateProjectTaskDialogProps) => {
   const { session } = useAuth();
   const { toast } = useToast();

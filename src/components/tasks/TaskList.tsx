@@ -12,6 +12,19 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Separator } from "@/components/ui/separator";
 import { cleanupCompletedTodoTasks, getRecurringTasksForToday, cleanupOldRecurringCompletions, createCompletedRecurringTaskInstance } from "@/utils/taskCleanup";
 
+const getPriorityBadgeVariant = (priority: "Low" | "Medium" | "High"): "outline" | "default" | "destructive" | "secondary" => {
+  switch (priority) {
+    case "High":
+      return "destructive";
+    case "Medium":
+      return "secondary";
+    case "Low":
+      return "outline";
+    default:
+      return "outline";
+  }
+};
+
 const TaskList = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -22,7 +35,6 @@ const TaskList = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Schedule cleanup at midnight
     const now = new Date();
     const midnight = new Date(now);
     midnight.setHours(24, 0, 0, 0);
@@ -31,7 +43,6 @@ const TaskList = () => {
     const cleanupTimer = setTimeout(() => {
       cleanupCompletedTodoTasks();
       cleanupOldRecurringCompletions();
-      // Set up daily interval after first run
       setInterval(() => {
         cleanupCompletedTodoTasks();
         cleanupOldRecurringCompletions();
@@ -45,7 +56,6 @@ const TaskList = () => {
 
   const fetchTasks = useCallback(async () => {
     try {
-      // Base query for all tasks
       let query = supabase
         .from("tasks")
         .select(`
@@ -55,21 +65,15 @@ const TaskList = () => {
           )
         `);
 
-      // Get tasks based on view
       if (view === "projects") {
-        // For projects view, get all undone project tasks
         query = query
           .not("project_id", "is", null)
           .eq("completed", false);
       } else {
-        // For all view, get both Todo and Recurring tasks
         const { data: allTasks, error: tasksError } = await query;
         if (tasksError) throw tasksError;
 
-        // Filter Todo tasks
         const todoTasks = (allTasks || []).filter(task => task.type === "Todo");
-
-        // Get recurring tasks for today
         const today = new Date();
         const dayOfWeek = today.getDay().toString();
         const recurringTasks = (allTasks || [])
@@ -78,7 +82,6 @@ const TaskList = () => {
             task.recurring_days?.includes(dayOfWeek)
           );
 
-        // Combine and sort tasks
         const tasksWithProjects = [...todoTasks, ...recurringTasks].map((task) => ({
           ...task,
           type: task.type
@@ -90,11 +93,9 @@ const TaskList = () => {
         return;
       }
 
-      // Fetch project tasks
       const { data: projectTasks, error: projectError } = await query;
       if (projectError) throw projectError;
 
-      // Group tasks by project and sort by priority
       const groupedTasks = (projectTasks || []).reduce((acc, task) => {
         const projectId = task.project_id || 'no_project';
         if (!acc[projectId]) {
@@ -104,7 +105,6 @@ const TaskList = () => {
         return acc;
       }, {} as Record<string, Task[]>);
 
-      // Sort tasks within each project by priority
       Object.keys(groupedTasks).forEach(projectId => {
         groupedTasks[projectId].sort((a, b) => {
           const priorityOrder = { High: 0, Medium: 1, Low: 2 };
@@ -113,7 +113,6 @@ const TaskList = () => {
         });
       });
 
-      // Flatten grouped tasks back into array
       const sortedProjectTasks = Object.values(groupedTasks).flat();
       setTasks(sortedProjectTasks);
     } catch (error) {
@@ -131,13 +130,12 @@ const TaskList = () => {
   }, [fetchTasks]);
 
   useEffect(() => {
-    // Fetch tasks when date changes
     const interval = setInterval(() => {
       const now = new Date();
       if (now.getHours() === 0 && now.getMinutes() === 0) {
         fetchTasks();
       }
-    }, 60000); // Check every minute
+    }, 60000);
 
     return () => clearInterval(interval);
   }, [fetchTasks]);
@@ -166,10 +164,8 @@ const TaskList = () => {
 
       if (task.type === "Recurring") {
         if (completed) {
-          // For recurring tasks, create a completion record
           await createCompletedRecurringTaskInstance(taskId, task.user_id);
         } else {
-          // Delete today's completion record
           const today = new Date().toISOString().split('T')[0];
           await supabase
             .from('recurring_task_completions')
@@ -180,7 +176,6 @@ const TaskList = () => {
             });
         }
       } else {
-        // For regular tasks, update the task itself
         const { error } = await supabase
           .from("tasks")
           .update({ completed })
@@ -189,7 +184,6 @@ const TaskList = () => {
         if (error) throw error;
       }
 
-      // Optimistically update UI
       setTasks(prev =>
         prev.map(t =>
           t.id === taskId ? { ...t, completed } : t
@@ -219,19 +213,6 @@ const TaskList = () => {
       return (priorityOrder[a.priority as keyof typeof priorityOrder] || 3) - 
              (priorityOrder[b.priority as keyof typeof priorityOrder] || 3);
     });
-  };
-
-  const getPriorityBadgeVariant = (priority: string) => {
-    switch (priority) {
-      case 'High':
-        return 'destructive';
-      case 'Medium':
-        return 'warning';
-      case 'Low':
-        return 'outline';
-      default:
-        return 'secondary';
-    }
   };
 
   return (
@@ -273,7 +254,6 @@ const TaskList = () => {
 
       <div className="flex-1 overflow-auto">
         <div className="space-y-4">
-          {/* To Do Section */}
           <div className="space-y-2">
             <Button
               variant="ghost"
@@ -344,7 +324,6 @@ const TaskList = () => {
             )}
           </div>
 
-          {/* Done Section */}
           <div className="space-y-2">
             <Button
               variant="ghost"

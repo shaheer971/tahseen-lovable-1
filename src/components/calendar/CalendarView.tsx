@@ -14,6 +14,7 @@ import { useState } from "react";
 import CreateTaskDialog from "@/components/tasks/CreateTaskDialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useToast } from "@/components/ui/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface CalendarViewProps {
   viewType: "day" | "week" | "month";
@@ -21,7 +22,7 @@ interface CalendarViewProps {
   setCurrentDate: (date: Date) => void;
   tasks: Task[];
   projectTasks: ProjectTask[];
-  onTaskComplete: (taskId: string, isProjectTask: boolean, completed: boolean) => void;
+  onTaskComplete?: (taskId: string, isProjectTask: boolean, completed: boolean) => void;
 }
 
 const getPriorityColor = (priority: string) => {
@@ -119,10 +120,11 @@ const CalendarView = ({
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   
-  const updateTaskOrder = async (taskId: string, newOrder: number, newDate?: Date) => {
+  const updateTaskOrder = async (taskId: string, newPosition: number, newDate?: Date) => {
     try {
-      console.log('Updating task order:', { taskId, newOrder, newDate });
+      console.log('Updating task position:', { taskId, newPosition, newDate });
       const { data: task } = await supabase
         .from('tasks')
         .select('*')
@@ -133,7 +135,7 @@ const CalendarView = ({
         throw new Error('Task not found');
       }
 
-      const updateData: any = { position: newOrder };
+      const updateData: any = { position: newPosition };
       if (newDate) {
         updateData.due_date = format(newDate, 'yyyy-MM-dd');
         updateData.due_time = format(new Date(task.due_time), 'HH:mm');
@@ -146,15 +148,14 @@ const CalendarView = ({
 
       if (error) throw error;
 
-      console.log('Task order updated successfully');
-      // Re-fetch tasks to update UI
-      // Assuming a function fetchTasks exists to refresh the task list
-      fetchTasks();
+      console.log('Task position updated successfully');
+      // Invalidate and refetch tasks
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (error: any) {
-      console.error('Error updating task order:', error);
+      console.error('Error updating task position:', error);
       toast({
         title: "Error",
-        description: error.message || "Failed to update task order",
+        description: error.message || "Failed to update task position",
         variant: "destructive",
       });
     }
@@ -182,7 +183,7 @@ const CalendarView = ({
     const destinationDayTasks = [
       ...tasks.filter(task => isSameDay(new Date(task.due_date), destinationDate)),
       ...projectTasks.filter(task => isSameDay(new Date(task.due_date), destinationDate))
-    ].sort((a, b) => (a.order || 0) - (b.order || 0));
+    ].sort((a, b) => (a.position || 0) - (b.position || 0));
 
     // Calculate new order
     let newOrder: number;
@@ -229,7 +230,7 @@ const CalendarView = ({
               const dayTasks = [
                 ...tasks.filter(task => isSameDay(new Date(task.due_date), day)),
                 ...projectTasks.filter(task => isSameDay(new Date(task.due_date), day))
-              ].sort((a, b) => (a.order || 0) - (b.order || 0));
+              ].sort((a, b) => (a.position || 0) - (b.position || 0));
               
               const droppableId = day.getTime().toString();
               const progress = calculateDayProgress(dayTasks);
