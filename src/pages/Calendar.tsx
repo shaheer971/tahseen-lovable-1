@@ -1,19 +1,24 @@
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Task } from "@/components/tasks/types";
 import { ProjectTask } from "@/components/projects/types";
 import CalendarView from "@/components/calendar/CalendarView";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import CreateTaskDialog from "@/components/tasks/CreateTaskDialog";
 
 type ViewType = "day" | "week" | "month";
 
 const Calendar = () => {
   const [viewType, setViewType] = useState<ViewType>("week");
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const queryClient = useQueryClient();
 
   // Fetch regular tasks
   const { data: tasks = [] } = useQuery({
@@ -22,7 +27,7 @@ const Calendar = () => {
       const { data, error } = await supabase
         .from("tasks")
         .select("*")
-        .order("due_date", { ascending: true });
+        .order("position", { ascending: true });
 
       if (error) throw error;
 
@@ -41,7 +46,7 @@ const Calendar = () => {
       const { data, error } = await supabase
         .from("project_tasks")
         .select("*, projects(name)")
-        .order("due_date", { ascending: true });
+        .order("position", { ascending: true });
 
       if (error) throw error;
 
@@ -64,16 +69,46 @@ const Calendar = () => {
 
       if (error) throw error;
 
+      // Optimistically update the local cache
+      if (isProjectTask) {
+        queryClient.setQueryData(['calendar-project-tasks'], (oldData: ProjectTask[] | undefined) => {
+          if (!oldData) return oldData;
+          return oldData.map(task => 
+            task.id === taskId ? { ...task, completed } : task
+          );
+        });
+      } else {
+        queryClient.setQueryData(['calendar-tasks'], (oldData: Task[] | undefined) => {
+          if (!oldData) return oldData;
+          return oldData.map(task => 
+            task.id === taskId ? { ...task, completed } : task
+          );
+        });
+      }
+
       toast.success(`Task ${completed ? "completed" : "uncompleted"} successfully`);
     } catch (error) {
       console.error("Error updating task:", error);
       toast.error("Failed to update task status");
+      // Invalidate queries to refresh data from server
+      queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['calendar-project-tasks'] });
     }
   };
 
+  const handleCreateTask = (date: Date) => {
+    setSelectedDate(date);
+    setCreateTaskOpen(true);
+  };
+
+  const handleTaskCreated = () => {
+    // Invalidate queries to refresh data
+    queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
+  };
+
   return (
-    <div className="p- mt-0 ml-0">
-      <div className="space-y-">
+    <div className="p-4 mt-0 ml-0">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold">Calendar</h1>
@@ -136,6 +171,13 @@ const Calendar = () => {
           tasks={tasks}
           projectTasks={projectTasks}
           onTaskComplete={handleTaskComplete}
+          onCreateTask={handleCreateTask}
+        />
+        <CreateTaskDialog
+          open={createTaskOpen}
+          onOpenChange={setCreateTaskOpen}
+          defaultDate={selectedDate}
+          onSuccess={handleTaskCreated}
         />
       </div>
     </div>

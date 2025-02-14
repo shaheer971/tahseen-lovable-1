@@ -23,6 +23,7 @@ interface CalendarViewProps {
   tasks: Task[];
   projectTasks: ProjectTask[];
   onTaskComplete?: (taskId: string, isProjectTask: boolean, completed: boolean) => void;
+  onCreateTask?: (date: Date) => void;
 }
 
 const getPriorityColor = (priority: string) => {
@@ -123,7 +124,8 @@ const CalendarView = ({
   setCurrentDate,
   tasks,
   projectTasks,
-  onTaskComplete
+  onTaskComplete,
+  onCreateTask
 }: CalendarViewProps) => {
   
   const [isDragging, setIsDragging] = useState(false);
@@ -285,12 +287,15 @@ const CalendarView = ({
         />
         <DragDropContext onDragStart={() => setIsDragging(true)} onDragEnd={handleDragEnd}>
           <div className="grid grid-cols-7 gap-1">
-            {days.map(day => {
+            {eachDayOfInterval({
+              start: startOfWeek(currentDate),
+              end: endOfWeek(currentDate)
+            }).map(day => {
               const dayTasks = [
                 ...tasks.filter(task => isSameDay(new Date(task.due_date), day)),
                 ...projectTasks.filter(task => isSameDay(new Date(task.due_date), day))
               ].sort((a, b) => a.position - b.position);
-              
+
               const droppableId = day.getTime().toString();
               const progress = calculateDayProgress(dayTasks);
               const isCurrentDay = isSameDay(day, currentDate);
@@ -317,10 +322,7 @@ const CalendarView = ({
                         variant="ghost" 
                         size="icon"
                         className="h-6 w-6"
-                        onClick={() => {
-                          setSelectedDate(day);
-                          setCreateTaskOpen(true);
-                        }}
+                        onClick={() => onCreateTask?.(day)}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
