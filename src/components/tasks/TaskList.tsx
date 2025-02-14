@@ -25,6 +25,19 @@ const getPriorityBadgeVariant = (priority: "Low" | "Medium" | "High"): "outline"
   }
 };
 
+const mapTaskPriority = (priority: string): "Low" | "Medium" | "High" => {
+  switch (priority.toLowerCase()) {
+    case "low":
+      return "Low";
+    case "medium":
+      return "Medium";
+    case "high":
+      return "High";
+    default:
+      return "Medium";
+  }
+};
+
 const TaskList = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -213,6 +226,15 @@ const TaskList = () => {
       return (priorityOrder[a.priority as keyof typeof priorityOrder] || 3) - 
              (priorityOrder[b.priority as keyof typeof priorityOrder] || 3);
     });
+  };
+
+  const handleAddTask = (task: any) => {
+    const mappedTask: Task = {
+      ...task,
+      priority: mapTaskPriority(task.priority),
+      type: task.type as "Todo" | "Recurring" | "Project"
+    };
+    setTasks(prev => [...prev, mappedTask]);
   };
 
   return (

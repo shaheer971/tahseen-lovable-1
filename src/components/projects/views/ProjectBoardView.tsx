@@ -114,7 +114,7 @@ const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
   ] as const;
 
   return (
-    <div className="board-view h-full p-4 space-y-4">
+    <>
       <DragDropContext onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {columns.map((column) => (
@@ -190,13 +190,12 @@ const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
         onOpenChange={setIsSheetOpen}
         task={selectedTask}
         projectId={projectId}
-        onClose={() => {
-          setSelectedTask(null);
+        onTaskUpdate={() => {
           // Invalidate queries to ensure both views are in sync
           queryClient.invalidateQueries({ queryKey: ['project-tasks'] });
         }}
       />
-    </div>
+    </>
   );
 };
 

@@ -175,7 +175,7 @@ const ProjectCalendarView = ({ projectId }: ProjectCalendarViewProps) => {
   };
 
   return (
-    <div className="space-y-4">
+    <>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Button
@@ -233,12 +233,11 @@ const ProjectCalendarView = ({ projectId }: ProjectCalendarViewProps) => {
         onOpenChange={setIsSheetOpen}
         task={selectedTask}
         projectId={projectId}
-        onClose={() => {
-          setSelectedTask(null);
+        onTaskUpdate={() => {
           queryClient.invalidateQueries({ queryKey: ['project-tasks'] });
         }}
       />
-    </div>
+    </>
   );
 };
 

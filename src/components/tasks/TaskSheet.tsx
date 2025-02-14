@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -41,9 +42,10 @@ interface TaskSheetProps {
   onTaskUpdate?: () => void;
   onTaskDelete?: (taskId: string) => Promise<void>;
   projectId?: string;
+  onClose?: () => void;
 }
 
-const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, projectId }: TaskSheetProps) => {
+const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, projectId, onClose }: TaskSheetProps) => {
   const { session } = useAuth();
   const { toast } = useToast();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -51,7 +53,7 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
     name: "",
     description: "",
     priority: "",
-    type: "Todo" as "Todo" | "Recurring",
+    type: "Todo" as "Todo" | "Recurring" | "Project",
     dueDate: "",
     dueTime: "12:00",
     recurringDays: [] as string[],
@@ -134,7 +136,7 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
       const taskData = {
         name: formData.name.trim(),
         description: formData.description?.trim() || null,
-        priority: formData.priority,
+        priority: formData.priority as "Low" | "Medium" | "High",
         type: formData.type,
         due_date: formData.type === "Todo" ? formData.dueDate : new Date().toISOString().split('T')[0],
         due_time: formData.type === "Todo" ? formData.dueTime + ":00" : formData.dueTime + ":00",
@@ -184,6 +186,9 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
       onOpenChange(false);
       if (onTaskUpdate) {
         onTaskUpdate();
+      }
+      if (onClose) {
+        onClose();
       }
     } catch (error: any) {
       console.error("Error managing task:", error);

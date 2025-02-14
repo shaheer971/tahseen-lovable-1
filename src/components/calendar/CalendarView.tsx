@@ -54,11 +54,18 @@ const calculateDayProgress = (tasks: (Task | ProjectTask)[]) => {
   return (completedTasks / totalTasks) * 100;
 };
 
-const TaskCard = ({ task, isProjectTask, index, droppableId }: { 
-  task: Task | ProjectTask, 
-  isProjectTask: boolean, 
-  index: number,
-  droppableId: string 
+const TaskCard = ({ 
+  task, 
+  isProjectTask, 
+  index, 
+  droppableId,
+  onTaskComplete 
+}: { 
+  task: Task | ProjectTask;
+  isProjectTask: boolean;
+  index: number;
+  droppableId: string;
+  onTaskComplete?: (taskId: string, isProjectTask: boolean, completed: boolean) => void;
 }) => {
   const timeString = task.due_date ? format(new Date(task.due_date), "H:mm") : "";
   
@@ -85,7 +92,7 @@ const TaskCard = ({ task, isProjectTask, index, droppableId }: {
               <Checkbox
                 checked={task.completed}
                 onCheckedChange={(checked) => 
-                  onTaskComplete(task.id, isProjectTask, checked as boolean)
+                  onTaskComplete?.(task.id, isProjectTask, checked as boolean)
                 }
                 onClick={(e) => e.stopPropagation()}
                 className="h-4 w-4"
