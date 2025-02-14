@@ -359,7 +359,9 @@ export type Database = {
           due_date: string
           due_time: string
           id: string
+          is_subtask: boolean
           name: string
+          parent_task_id: string | null
           position: number
           priority: string
           project_id: string | null
@@ -375,7 +377,9 @@ export type Database = {
           due_date: string
           due_time: string
           id?: string
+          is_subtask?: boolean
           name: string
+          parent_task_id?: string | null
           position?: number
           priority: string
           project_id?: string | null
@@ -391,7 +395,9 @@ export type Database = {
           due_date?: string
           due_time?: string
           id?: string
+          is_subtask?: boolean
           name?: string
+          parent_task_id?: string | null
           position?: number
           priority?: string
           project_id?: string | null
@@ -401,6 +407,20 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_parent_task"
+            columns: ["parent_task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_parent_task_id_fkey"
+            columns: ["parent_task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tasks_project_id_fkey"
             columns: ["project_id"]

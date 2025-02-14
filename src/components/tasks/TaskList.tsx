@@ -58,25 +58,37 @@ const TaskList = () => {
           )
         `)
         .eq("user_id", session.user.id)
+        .eq("is_subtask", false)
         .order("completed", { ascending: true })
         .order("priority", { ascending: false })
         .order("position");
 
       if (error) throw error;
 
-      // Transform the data to ensure correct types
-      const typedTasks: Task[] = (data || []).map(task => ({
-        ...task,
-        priority: validatePriority(task.priority),
-        type: validateType(task.type),
-        completed: task.completed || false,
-        recurring_days: task.recurring_days || [],
-        description: task.description || "",
-        project_id: task.project_id || null,
-        projects: task.projects || null
-      }));
+      const tasksWithSubtasks = await Promise.all(
+        data.map(async (task) => {
+          const { data: subtasks } = await supabase
+            .from("tasks")
+            .select("*")
+            .eq("parent_task_id", task.id)
+            .eq("is_subtask", true)
+            .order("position");
 
-      setTasks(typedTasks);
+          return {
+            ...task,
+            priority: validatePriority(task.priority),
+            type: validateType(task.type),
+            completed: task.completed || false,
+            recurring_days: task.recurring_days || [],
+            description: task.description || "",
+            project_id: task.project_id || null,
+            projects: task.projects || null,
+            subtasks: subtasks || []
+          };
+        })
+      );
+
+      setTasks(tasksWithSubtasks);
     } catch (error) {
       console.error("Error fetching tasks:", error);
     }
@@ -89,7 +101,6 @@ const TaskList = () => {
         .update({ completed })
         .eq("id", taskId);
 
-      // Optimistically update the UI
       setTasks(prevTasks =>
         prevTasks.map(task =>
           task.id === taskId ? { ...task, completed } : task
@@ -116,7 +127,6 @@ const TaskList = () => {
 
       if (error) throw error;
 
-      // Optimistically update the UI
       setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
 
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -150,16 +160,13 @@ const TaskList = () => {
     const sourceIndex = result.source.index;
     const destinationIndex = result.destination.index;
 
-    // Reorder the tasks array
     const reorderedTasks = Array.from(tasks);
     const [movedTask] = reorderedTasks.splice(sourceIndex, 1);
     reorderedTasks.splice(destinationIndex, 0, movedTask);
 
-    // Optimistically update the UI
     setTasks(reorderedTasks);
 
     try {
-      // Update the position of each task in the database
       const updates = reorderedTasks.map((task, index) =>
         supabase
           .from("tasks")
@@ -167,10 +174,7 @@ const TaskList = () => {
           .eq("id", task.id)
       );
 
-      // Wait for all updates to complete
       await Promise.all(updates);
-
-      // Invalidate the query to refresh the data
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (error) {
       console.error("Error updating task positions:", error);
@@ -179,7 +183,6 @@ const TaskList = () => {
         description: "Failed to update task positions",
         variant: "destructive",
       });
-      // If there's an error, revert the UI to the previous state
       fetchTasks();
     }
   };
@@ -237,6 +240,30 @@ const TaskList = () => {
                             }}
                           />
                         </div>
+                        {task.subtasks && task.subtasks.length > 0 && (
+                          <div className="mt-4 pl-4 space-y-2 border-l">
+                            {task.subtasks.map((subtask) => (
+                              <div
+                                key={subtask.id}
+                                className="flex items-center justify-between"
+                              >
+                                <span className={cn(
+                                  "text-sm",
+                                  subtask.completed && "line-through text-muted-foreground"
+                                )}>
+                                  {subtask.name}
+                                </span>
+                                <Checkbox
+                                  checked={subtask.completed}
+                                  onCheckedChange={(checked) => {
+                                    handleToggleComplete(subtask.id, checked as boolean);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between mt-2">
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <div>

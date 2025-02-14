@@ -5,11 +5,11 @@ export interface Task {
   name: string;
   description?: string;
   priority: "Low" | "Medium" | "High";
-  type: "Todo" | "Recurring" | "Project";  // Updated to include "Project"
+  type: "Todo" | "Recurring" | "Project";
   due_date: string;
   due_time: string;
   completed: boolean;
-  position: number;  // Changed from order to position
+  position: number;
   created_at: string;
   updated_at: string;
   project_id?: string | null;
@@ -18,4 +18,8 @@ export interface Task {
     name: string;
   } | null;
   status?: "todo" | "in-progress" | "done";
+  parent_task_id?: string | null;
+  is_subtask: boolean;
+  subtasks?: Task[];
 }
+

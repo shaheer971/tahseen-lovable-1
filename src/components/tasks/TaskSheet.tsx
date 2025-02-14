@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -24,6 +23,10 @@ import { Task } from "./types";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/ui/use-toast";
+import { PlusCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const DAYS_OF_WEEK = [
   { label: "Sunday", value: "0" },
@@ -58,6 +61,10 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
     dueTime: "12:00",
     recurringDays: [] as string[],
   });
+  const [showSubtaskInput, setShowSubtaskInput] = useState(false);
+  const [subtaskName, setSubtaskName] = useState("");
+  const [showSubtasks, setShowSubtasks] = useState(true);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (task) {
@@ -97,7 +104,6 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
     }
 
     try {
-      // Get existing tasks to determine position
       const { data: existingTasks } = await supabase
         .from("tasks")
         .select("position, priority")
@@ -106,7 +112,6 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
         .order("priority", { ascending: false })
         .order("position");
 
-      // Calculate position based on priority
       const priorityOrder = { High: 3, Medium: 2, Low: 1 };
       const newTaskPriority = priorityOrder[formData.priority as keyof typeof priorityOrder] || 0;
       
@@ -119,7 +124,6 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
         if (lastSameOrHigherPriorityTask) {
           newPosition = lastSameOrHigherPriorityTask.position + 1;
           
-          // Update positions of tasks after the new position
           const { error: updateError } = await supabase
             .from("tasks")
             .update({ position: newPosition })
@@ -172,7 +176,6 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
         });
       }
 
-      // Reset form
       setFormData({
         name: "",
         description: "",
@@ -244,6 +247,92 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
       setFormData(prev => ({ ...prev, recurringDays: [] }));
     } else {
       setFormData(prev => ({ ...prev, recurringDays: DAYS_OF_WEEK.map(day => day.value) }));
+    }
+  };
+
+  const { data: subtasks = [] } = useQuery({
+    queryKey: ['subtasks', task?.id],
+    queryFn: async () => {
+      if (!task?.id) return [];
+      
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('parent_task_id', task.id)
+        .eq('is_subtask', true)
+        .order('position');
+
+      if (error) throw error;
+      return data as Task[];
+    },
+    enabled: !!task?.id
+  });
+
+  const handleCreateSubtask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session?.user?.id || !task?.id || !subtaskName.trim()) return;
+
+    try {
+      const { data: tasksData } = await supabase
+        .from("tasks")
+        .select("position")
+        .eq("parent_task_id", task.id)
+        .order("position", { ascending: false })
+        .limit(1);
+
+      const nextPosition = tasksData && tasksData[0] ? tasksData[0].position + 1 : 0;
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert({
+          name: subtaskName.trim(),
+          user_id: session.user.id,
+          parent_task_id: task.id,
+          is_subtask: true,
+          priority: task.priority,
+          type: "Todo",
+          due_date: task.due_date,
+          due_time: task.due_time,
+          position: nextPosition,
+          completed: false,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      queryClient.invalidateQueries({ queryKey: ['subtasks', task.id] });
+      setSubtaskName("");
+      setShowSubtaskInput(false);
+      toast.success("Subtask created successfully");
+    } catch (error: any) {
+      console.error("Error creating subtask:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create subtask",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleToggleSubtask = async (subtaskId: string, completed: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ completed })
+        .eq('id', subtaskId);
+
+      if (error) throw error;
+
+      queryClient.invalidateQueries({ queryKey: ['subtasks', task?.id] });
+      toast.success(`Subtask ${completed ? "completed" : "uncompleted"}`);
+    } catch (error: any) {
+      console.error("Error updating subtask:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update subtask",
+        variant: "destructive",
+      });
     }
   };
 
@@ -397,6 +486,71 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
                 </>
               )}
 
+              {task && !task.is_subtask && (
+                <div className="space-y-4 mt-6">
+                  <div className="flex items-center justify-between">
+                    <Label>Subtasks</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowSubtaskInput(!showSubtaskInput)}
+                    >
+                      <PlusCircle className="h-4 w-4 mr-2" />
+                      Add Subtask
+                    </Button>
+                  </div>
+
+                  {showSubtaskInput && (
+                    <form onSubmit={handleCreateSubtask} className="flex items-center gap-2">
+                      <Input
+                        value={subtaskName}
+                        onChange={(e) => setSubtaskName(e.target.value)}
+                        placeholder="Enter subtask name"
+                        className="flex-1"
+                      />
+                      <Button type="submit" size="sm">
+                        Add
+                      </Button>
+                    </form>
+                  )}
+
+                  <Collapsible open={showSubtasks} onOpenChange={setShowSubtasks}>
+                    <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+                      {showSubtasks ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      {subtasks.length} Subtasks
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-2">
+                      <div className="space-y-2">
+                        {subtasks.map((subtask) => (
+                          <div
+                            key={subtask.id}
+                            className="flex items-center gap-2 p-2 rounded-md hover:bg-accent"
+                          >
+                            <Checkbox
+                              checked={subtask.completed}
+                              onCheckedChange={(checked) =>
+                                handleToggleSubtask(subtask.id, checked as boolean)
+                              }
+                            />
+                            <span className={cn(
+                              "text-sm",
+                              subtask.completed && "line-through text-muted-foreground"
+                            )}>
+                              {subtask.name}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              )}
+
               <div className="pt-4 space-x-2 flex justify-end">
                 <Button type="submit">
                   {task ? "Update Task" : "Create Task"}
@@ -424,7 +578,8 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the task.
+              This action cannot be undone. This will permanently delete the task
+              {task?.is_subtask ? "" : " and all its subtasks"}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
