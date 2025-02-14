@@ -289,6 +289,38 @@ export type Database = {
         }
         Relationships: []
       }
+      recurring_task_completions: {
+        Row: {
+          completed_date: string
+          created_at: string
+          id: string
+          task_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          completed_date: string
+          created_at?: string
+          id?: string
+          task_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          completed_date?: string
+          created_at?: string
+          id?: string
+          task_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recurring_task_completions_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roadmap_items: {
         Row: {
           created_at: string
