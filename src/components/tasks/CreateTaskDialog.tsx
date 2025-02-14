@@ -29,9 +29,10 @@ interface CreateTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate?: Date | null;
+  onSuccess?: () => void;
 }
 
-const CreateTaskDialog = ({ open, onOpenChange, defaultDate }: CreateTaskDialogProps) => {
+const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: CreateTaskDialogProps) => {
   const { toast } = useToast();
   const { session } = useAuth();
   const [formData, setFormData] = useState({
@@ -65,7 +66,6 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate }: CreateTaskDialogP
     }
 
     try {
-      // Get the highest position for ordering
       const { data: tasksData } = await supabase
         .from("tasks")
         .select("position")
@@ -75,7 +75,6 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate }: CreateTaskDialogP
 
       const nextPosition = tasksData && tasksData[0] ? tasksData[0].position + 1 : 0;
 
-      // Insert the new task
       const { error } = await supabase
         .from("tasks")
         .insert({
@@ -106,6 +105,10 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate }: CreateTaskDialogP
         dueDate: defaultDate ? format(defaultDate, "yyyy-MM-dd") : "",
         dueTime: "12:00",
       });
+
+      if (onSuccess) {
+        onSuccess();
+      }
 
       onOpenChange(false);
     } catch (error: any) {

@@ -1,10 +1,10 @@
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, startOfMonth, endOfMonth, isSameMonth, parse } from "date-fns";
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, startOfMonth, endOfMonth, isSameMonth } from "date-fns";
 import { Task } from "@/components/tasks/types";
 import { ProjectTask } from "@/components/projects/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import CreateTaskDialog from "@/components/tasks/CreateTaskDialog";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import TaskSheet from "@/components/tasks/TaskSheet";
 import { useToast } from "@/components/ui/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -59,13 +59,15 @@ const TaskCard = ({
   isProjectTask, 
   index, 
   droppableId,
-  onTaskComplete 
+  onTaskComplete,
+  onTaskClick 
 }: { 
   task: Task | ProjectTask;
   isProjectTask: boolean;
   index: number;
   droppableId: string;
   onTaskComplete?: (taskId: string, isProjectTask: boolean, completed: boolean) => void;
+  onTaskClick?: (task: Task | ProjectTask) => void;
 }) => {
   const timeString = task.due_date ? format(new Date(task.due_date), "H:mm") : "";
   
@@ -82,6 +84,7 @@ const TaskCard = ({
             'bg-accent/50 hover:bg-accent',
             snapshot.isDragging && 'shadow-lg'
           )}
+          onClick={() => onTaskClick?.(task)}
         >
           <div className="flex flex-col gap-1">
             <span className="text-sm font-medium">{task.name}</span>
@@ -91,9 +94,9 @@ const TaskCard = ({
             <div className="flex items-center justify-between mt-1">
               <Checkbox
                 checked={task.completed}
-                onCheckedChange={(checked) => 
-                  onTaskComplete?.(task.id, isProjectTask, checked as boolean)
-                }
+                onCheckedChange={(checked) => {
+                  onTaskComplete?.(task.id, isProjectTask, checked as boolean);
+                }}
                 onClick={(e) => e.stopPropagation()}
                 className="h-4 w-4"
               />
@@ -125,39 +128,48 @@ const CalendarView = ({
   
   const [isDragging, setIsDragging] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | ProjectTask | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [isTaskSheetOpen, setIsTaskSheetOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
-  const updateTaskOrder = async (taskId: string, newPosition: number, newDate?: Date) => {
+
+  const handleTaskClick = (task: Task | ProjectTask) => {
+    setSelectedTask(task);
+    setIsTaskSheetOpen(true);
+  };
+
+  const updateTaskPosition = async (taskId: string, newPosition: number, newDate?: Date) => {
     try {
-      console.log('Updating task position:', { taskId, newPosition, newDate });
-      const { data: task } = await supabase
+      const { data: task, error: fetchError } = await supabase
         .from('tasks')
         .select('*')
         .eq('id', taskId)
         .single();
 
-      if (!task) {
-        throw new Error('Task not found');
-      }
+      if (fetchError) throw fetchError;
+      if (!task) throw new Error('Task not found');
 
       const updateData: any = { position: newPosition };
       if (newDate) {
         updateData.due_date = format(newDate, 'yyyy-MM-dd');
-        updateData.due_time = format(new Date(task.due_time), 'HH:mm');
       }
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('tasks')
         .update(updateData)
         .eq('id', taskId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      console.log('Task position updated successfully');
-      // Invalidate and refetch tasks
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      // Optimistically update the cache
+      queryClient.setQueryData(['calendar-tasks'], (oldData: Task[] | undefined) => {
+        if (!oldData) return oldData;
+        return oldData.map(t => 
+          t.id === taskId ? { ...t, position: newPosition, due_date: newDate?.toISOString() || t.due_date } : t
+        );
+      });
+
     } catch (error: any) {
       console.error('Error updating task position:', error);
       toast({
@@ -166,10 +178,6 @@ const CalendarView = ({
         variant: "destructive",
       });
     }
-  };
-
-  const handleDragStart = () => {
-    setIsDragging(true);
   };
 
   const handleDragEnd = async (result: any) => {
@@ -182,40 +190,45 @@ const CalendarView = ({
     const sourceIndex = result.source.index;
     const destinationIndex = result.destination.index;
     
-    // Get source and destination dates from droppableIds
     const sourceDate = new Date(parseInt(sourceDroppableId));
     const destinationDate = new Date(parseInt(destinationDroppableId));
     
     // Get all tasks for the destination day
-    const destinationDayTasks = [
+    const dayTasks = [
       ...tasks.filter(task => isSameDay(new Date(task.due_date), destinationDate)),
       ...projectTasks.filter(task => isSameDay(new Date(task.due_date), destinationDate))
-    ].sort((a, b) => (a.position || 0) - (b.position || 0));
+    ].sort((a, b) => a.position - b.position);
 
-    // Calculate new order
-    let newOrder: number;
+    // Calculate new position
+    let newPosition: number;
     if (destinationIndex === 0) {
-      newOrder = destinationDayTasks.length > 0 ? (destinationDayTasks[0].position || 0) - 1 : 0;
-    } else if (destinationIndex === destinationDayTasks.length) {
-      newOrder = destinationDayTasks.length > 0 ? (destinationDayTasks[destinationDayTasks.length - 1].position || 0) + 1 : 0;
+      newPosition = dayTasks.length > 0 ? dayTasks[0].position - 1 : 0;
+    } else if (destinationIndex === dayTasks.length) {
+      newPosition = dayTasks.length > 0 ? dayTasks[dayTasks.length - 1].position + 1 : 0;
     } else {
-      const prevTask = destinationDayTasks[destinationIndex - 1];
-      const nextTask = destinationDayTasks[destinationIndex];
-      newOrder = ((prevTask.position || 0) + (nextTask.position || 0)) / 2;
+      const prevTask = dayTasks[destinationIndex - 1];
+      const nextTask = dayTasks[destinationIndex];
+      newPosition = (prevTask.position + nextTask.position) / 2;
     }
 
-    // Update the task's order and date if necessary
-    const taskToMove = [...tasks, ...projectTasks].find(task => 
-      isSameDay(new Date(task.due_date), sourceDate) && 
-      task.position === sourceIndex
+    // Find the task being moved
+    const movedTask = [...tasks, ...projectTasks].find(task => 
+      task.id === result.draggableId
     );
 
-    if (taskToMove) {
-      await updateTaskOrder(
-        taskToMove.id, 
-        newOrder,
-        sourceDroppableId !== destinationDroppableId ? destinationDate : undefined
-      );
+    if (movedTask) {
+      // Optimistically update the UI
+      queryClient.setQueryData(['calendar-tasks'], (oldData: Task[] | undefined) => {
+        if (!oldData) return oldData;
+        return oldData.map(t => 
+          t.id === movedTask.id 
+            ? { ...t, position: newPosition, due_date: destinationDate.toISOString() } 
+            : t
+        );
+      });
+
+      // Update the database
+      await updateTaskPosition(movedTask.id, newPosition, destinationDate);
     }
   };
 
@@ -230,14 +243,27 @@ const CalendarView = ({
           open={createTaskOpen} 
           onOpenChange={setCreateTaskOpen}
           defaultDate={selectedDate}
+          onSuccess={() => {
+            // Immediately refetch tasks after creation
+            queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
+          }}
         />
-        <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <TaskSheet
+          open={isTaskSheetOpen}
+          onOpenChange={setIsTaskSheetOpen}
+          task={selectedTask}
+          onTaskUpdate={() => {
+            // Immediately refetch tasks after update
+            queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
+          }}
+        />
+        <DragDropContext onDragStart={() => setIsDragging(true)} onDragEnd={handleDragEnd}>
           <div className="grid grid-cols-7 gap-1">
             {days.map(day => {
               const dayTasks = [
                 ...tasks.filter(task => isSameDay(new Date(task.due_date), day)),
                 ...projectTasks.filter(task => isSameDay(new Date(task.due_date), day))
-              ].sort((a, b) => (a.position || 0) - (b.position || 0));
+              ].sort((a, b) => a.position - b.position);
               
               const droppableId = day.getTime().toString();
               const progress = calculateDayProgress(dayTasks);
@@ -296,6 +322,8 @@ const CalendarView = ({
                                   isProjectTask={'projects' in task}
                                   index={index}
                                   droppableId={droppableId}
+                                  onTaskComplete={onTaskComplete}
+                                  onTaskClick={handleTaskClick}
                                 />
                               ))}
                             </div>
@@ -382,6 +410,8 @@ const CalendarView = ({
                       isProjectTask={'projects' in task}
                       index={index}
                       droppableId={currentDate.getTime().toString()}
+                      onTaskComplete={onTaskComplete}
+                      onTaskClick={handleTaskClick}
                     />
                   ))}
                 </div>
@@ -396,27 +426,6 @@ const CalendarView = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        {/* <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => handlePrevious()}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => handleNext()}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <span className="text-lg font-semibold">
-            {format(currentDate, "MMMM yyyy")}
-          </span>
-        </div> */}
-      </div>
       <div className="bg-card rounded-lg shadow p-4">
         {viewType === "day" && renderDayView()}
         {viewType === "week" && renderWeekView()}
