@@ -139,6 +139,30 @@ const CalendarView = ({
     setIsTaskSheetOpen(true);
   };
 
+  const calculatePosition = (tasks: (Task | ProjectTask)[], destinationIndex: number): number => {
+    const POSITION_GAP = 1000; // Use a large gap to allow for future insertions
+
+    if (tasks.length === 0) {
+      return POSITION_GAP;
+    }
+
+    if (destinationIndex === 0) {
+      const firstTaskPosition = tasks[0]?.position || POSITION_GAP;
+      return Math.floor(firstTaskPosition / 2);
+    }
+
+    if (destinationIndex >= tasks.length) {
+      const lastTaskPosition = tasks[tasks.length - 1]?.position || 0;
+      return lastTaskPosition + POSITION_GAP;
+    }
+
+    const prevPosition = tasks[destinationIndex - 1]?.position || 0;
+    const nextPosition = tasks[destinationIndex]?.position || prevPosition + (POSITION_GAP * 2);
+    
+    // Calculate the middle position, ensuring it's a whole number
+    return Math.floor(prevPosition + ((nextPosition - prevPosition) / 2));
+  };
+
   const updateTaskPosition = async (taskId: string, newPosition: number, newDate?: Date) => {
     try {
       const { data: task, error: fetchError } = await supabase
@@ -158,7 +182,10 @@ const CalendarView = ({
         return;
       }
 
-      const updateData: any = { position: newPosition };
+      const updateData: any = { 
+        position: Math.floor(newPosition) // Ensure position is an integer
+      };
+      
       if (newDate) {
         updateData.due_date = format(newDate, 'yyyy-MM-dd');
       }
@@ -174,7 +201,7 @@ const CalendarView = ({
         if (!oldData) return oldData;
         return oldData.map(t => 
           t.id === taskId 
-            ? { ...t, position: newPosition, due_date: newDate?.toISOString() || t.due_date } 
+            ? { ...t, position: Math.floor(newPosition), due_date: newDate?.toISOString() || t.due_date } 
             : t
         );
       });
@@ -197,10 +224,8 @@ const CalendarView = ({
 
     const sourceDroppableId = result.source.droppableId;
     const destinationDroppableId = result.destination.droppableId;
-    const sourceIndex = result.source.index;
     const destinationIndex = result.destination.index;
     
-    const sourceDate = new Date(parseInt(sourceDroppableId));
     const destinationDate = new Date(parseInt(destinationDroppableId));
     
     const dayTasks = [
@@ -221,16 +246,7 @@ const CalendarView = ({
       return;
     }
 
-    let newPosition: number;
-    if (destinationIndex === 0) {
-      newPosition = dayTasks.length > 0 ? dayTasks[0].position - 1 : 0;
-    } else if (destinationIndex === dayTasks.length) {
-      newPosition = dayTasks.length > 0 ? dayTasks[dayTasks.length - 1].position + 1 : 0;
-    } else {
-      const prevTask = dayTasks[destinationIndex - 1];
-      const nextTask = dayTasks[destinationIndex];
-      newPosition = (prevTask.position + nextTask.position) / 2;
-    }
+    const newPosition = calculatePosition(dayTasks, destinationIndex);
 
     queryClient.setQueryData(['calendar-tasks'], (oldData: Task[] | undefined) => {
       if (!oldData) return oldData;
