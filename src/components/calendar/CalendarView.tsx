@@ -145,10 +145,18 @@ const CalendarView = ({
         .from('tasks')
         .select('*')
         .eq('id', taskId)
-        .single();
+        .maybeSingle();
 
       if (fetchError) throw fetchError;
-      if (!task) throw new Error('Task not found');
+      if (!task) {
+        toast({
+          title: "Task not found",
+          description: "The task may have been deleted",
+          variant: "destructive",
+        });
+        queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
+        return;
+      }
 
       const updateData: any = { position: newPosition };
       if (newDate) {
@@ -162,11 +170,12 @@ const CalendarView = ({
 
       if (updateError) throw updateError;
 
-      // Optimistically update the cache
       queryClient.setQueryData(['calendar-tasks'], (oldData: Task[] | undefined) => {
         if (!oldData) return oldData;
         return oldData.map(t => 
-          t.id === taskId ? { ...t, position: newPosition, due_date: newDate?.toISOString() || t.due_date } : t
+          t.id === taskId 
+            ? { ...t, position: newPosition, due_date: newDate?.toISOString() || t.due_date } 
+            : t
         );
       });
 
@@ -177,6 +186,7 @@ const CalendarView = ({
         description: error.message || "Failed to update task position",
         variant: "destructive",
       });
+      queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
     }
   };
 
@@ -193,13 +203,24 @@ const CalendarView = ({
     const sourceDate = new Date(parseInt(sourceDroppableId));
     const destinationDate = new Date(parseInt(destinationDroppableId));
     
-    // Get all tasks for the destination day
     const dayTasks = [
       ...tasks.filter(task => isSameDay(new Date(task.due_date), destinationDate)),
       ...projectTasks.filter(task => isSameDay(new Date(task.due_date), destinationDate))
     ].sort((a, b) => a.position - b.position);
 
-    // Calculate new position
+    const movedTask = [...tasks, ...projectTasks].find(task => 
+      task.id === result.draggableId
+    );
+
+    if (!movedTask) {
+      toast({
+        title: "Error",
+        description: "Task not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
     let newPosition: number;
     if (destinationIndex === 0) {
       newPosition = dayTasks.length > 0 ? dayTasks[0].position - 1 : 0;
@@ -211,25 +232,16 @@ const CalendarView = ({
       newPosition = (prevTask.position + nextTask.position) / 2;
     }
 
-    // Find the task being moved
-    const movedTask = [...tasks, ...projectTasks].find(task => 
-      task.id === result.draggableId
-    );
+    queryClient.setQueryData(['calendar-tasks'], (oldData: Task[] | undefined) => {
+      if (!oldData) return oldData;
+      return oldData.map(t => 
+        t.id === movedTask.id 
+          ? { ...t, position: newPosition, due_date: destinationDate.toISOString() } 
+          : t
+      );
+    });
 
-    if (movedTask) {
-      // Optimistically update the UI
-      queryClient.setQueryData(['calendar-tasks'], (oldData: Task[] | undefined) => {
-        if (!oldData) return oldData;
-        return oldData.map(t => 
-          t.id === movedTask.id 
-            ? { ...t, position: newPosition, due_date: destinationDate.toISOString() } 
-            : t
-        );
-      });
-
-      // Update the database
-      await updateTaskPosition(movedTask.id, newPosition, destinationDate);
-    }
+    await updateTaskPosition(movedTask.id, newPosition, destinationDate);
   };
 
   const renderWeekView = () => {
@@ -244,7 +256,6 @@ const CalendarView = ({
           onOpenChange={setCreateTaskOpen}
           defaultDate={selectedDate}
           onSuccess={() => {
-            // Immediately refetch tasks after creation
             queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
           }}
         />
@@ -253,7 +264,6 @@ const CalendarView = ({
           onOpenChange={setIsTaskSheetOpen}
           task={selectedTask}
           onTaskUpdate={() => {
-            // Immediately refetch tasks after update
             queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
           }}
         />
