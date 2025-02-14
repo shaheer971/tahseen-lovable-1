@@ -4,7 +4,7 @@ export interface Task {
   name: string;
   description?: string;
   priority: "Low" | "Medium" | "High";
-  type: "Todo" | "Project" | "Recurring";
+  type: "Todo" | "Recurring";  // Updated to just Todo and Recurring
   due_date: string;
   due_time: string;
   completed: boolean;

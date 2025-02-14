@@ -8,6 +8,7 @@ import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import CreateProjectTaskDialog from "../CreateProjectTaskDialog";
+import TaskSheet from "@/components/tasks/TaskSheet";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface ProjectBoardViewProps {
@@ -17,6 +18,8 @@ interface ProjectBoardViewProps {
 const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<"todo" | "in-progress" | "done">("todo");
+  const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -37,7 +40,7 @@ const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
         type: task.type as "Todo" | "Project" | "Recurring",
         status: task.status as "todo" | "in-progress" | "done"
       }));
-    }
+    },
   });
 
   const handleDragEnd = async (result: DropResult) => {
@@ -47,7 +50,7 @@ const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
     const taskId = result.draggableId;
     const newStatus = destination.droppableId as "todo" | "in-progress" | "done";
 
-    // Optimistically update the UI
+    // Optimistic update
     queryClient.setQueryData(['project-tasks', projectId], (oldData: ProjectTask[]) => {
       const updatedTasks = [...oldData];
       const [removed] = updatedTasks.splice(source.index, 1);
@@ -66,6 +69,9 @@ const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
         .eq("id", taskId);
 
       if (error) throw error;
+
+      // Invalidate queries to ensure both views are in sync
+      queryClient.invalidateQueries({ queryKey: ['project-tasks'] });
     } catch (error) {
       console.error("Error updating task:", error);
       toast({
@@ -74,13 +80,31 @@ const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
         variant: "destructive",
       });
       // Revert optimistic update on error
-      queryClient.invalidateQueries({ queryKey: ['project-tasks', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['project-tasks'] });
     }
   };
 
   const handleAddTask = (status: "todo" | "in-progress" | "done") => {
     setSelectedStatus(status);
     setCreateDialogOpen(true);
+  };
+
+  const handleTaskClick = (task: ProjectTask) => {
+    setSelectedTask(task);
+    setIsSheetOpen(true);
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return 'bg-destructive/10 text-destructive hover:bg-destructive/20';
+      case 'medium':
+        return 'bg-warning/10 text-warning hover:bg-warning/20';
+      case 'low':
+        return 'bg-success/10 text-success hover:bg-success/20';
+      default:
+        return 'bg-secondary';
+    }
   };
 
   const columns = [
@@ -126,19 +150,20 @@ const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
                               ref={provided.innerRef}
                               {...provided.draggableProps}
                               {...provided.dragHandleProps}
-                              className="bg-white p-4 rounded-lg shadow border"
+                              className="bg-card p-4 rounded-lg shadow border cursor-pointer hover:border-primary/50"
+                              onClick={() => handleTaskClick(task)}
                             >
-                              <h4 className="font-medium">{task.name}</h4>
+                              <h4 className="font-medium text-foreground">{task.name}</h4>
                               {task.description && (
-                                <p className="text-sm text-gray-600 mt-1">
+                                <p className="text-sm text-muted-foreground mt-1">
                                   {task.description}
                                 </p>
                               )}
                               <div className="flex items-center gap-2 mt-2">
-                                <Badge variant="secondary">
+                                <Badge className={getPriorityColor(task.priority)}>
                                   {task.priority}
                                 </Badge>
-                                <span className="text-sm text-gray-500">
+                                <span className="text-sm text-muted-foreground">
                                   {format(new Date(task.due_date), "MMM dd")}
                                 </span>
                               </div>
@@ -155,10 +180,21 @@ const ProjectBoardView = ({ projectId }: ProjectBoardViewProps) => {
         </div>
       </DragDropContext>
       <CreateProjectTaskDialog
-        projectId={projectId}
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        initialStatus={selectedStatus}
+        projectId={projectId}
+        defaultValues={{ status: selectedStatus }}
+      />
+      <TaskSheet
+        open={isSheetOpen}
+        onOpenChange={setIsSheetOpen}
+        task={selectedTask}
+        projectId={projectId}
+        onClose={() => {
+          setSelectedTask(null);
+          // Invalidate queries to ensure both views are in sync
+          queryClient.invalidateQueries({ queryKey: ['project-tasks'] });
+        }}
       />
     </div>
   );

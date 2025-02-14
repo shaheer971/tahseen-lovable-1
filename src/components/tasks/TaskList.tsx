@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
 import { Task } from "./types";
 import TaskSheet from "./TaskSheet";
-import { format } from "date-fns";
+import { format, parse } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { LayoutList, FolderKanban, Plus, Tag, ChevronDown, ChevronRight } from "lucide-react";
-import { cleanupCompletedTodoTasks, getRecurringTasksForToday } from "@/utils/taskCleanup";
+import { LayoutList, FolderKanban, Plus, Tag, ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
+import { cleanupCompletedTodoTasks, getRecurringTasksForToday, cleanupOldRecurringCompletions, createCompletedRecurringTaskInstance } from "@/utils/taskCleanup";
 
 const TaskList = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -28,8 +30,12 @@ const TaskList = () => {
 
     const cleanupTimer = setTimeout(() => {
       cleanupCompletedTodoTasks();
+      cleanupOldRecurringCompletions();
       // Set up daily interval after first run
-      setInterval(cleanupCompletedTodoTasks, 24 * 60 * 60 * 1000);
+      setInterval(() => {
+        cleanupCompletedTodoTasks();
+        cleanupOldRecurringCompletions();
+      }, 24 * 60 * 60 * 1000);
     }, msUntilMidnight);
 
     return () => {
@@ -39,36 +45,77 @@ const TaskList = () => {
 
   const fetchTasks = useCallback(async () => {
     try {
-      // Fetch regular tasks
-      const { data: todoTasks, error: todoError } = await supabase
+      // Base query for all tasks
+      let query = supabase
         .from("tasks")
         .select(`
           *,
           projects (
             name
           )
-        `)
-        .eq("type", "todo");
+        `);
 
-      if (todoError) throw todoError;
+      // Get tasks based on view
+      if (view === "projects") {
+        // For projects view, get all undone project tasks
+        query = query
+          .not("project_id", "is", null)
+          .eq("completed", false);
+      } else {
+        // For all view, get both Todo and Recurring tasks
+        const { data: allTasks, error: tasksError } = await query;
+        if (tasksError) throw tasksError;
 
-      // Fetch recurring tasks for today
-      const recurringTasks = await getRecurringTasksForToday();
+        // Filter Todo tasks
+        const todoTasks = (allTasks || []).filter(task => task.type === "Todo");
 
-      // Combine and sort tasks
-      const tasksWithProjects = [...(todoTasks || []), ...recurringTasks].map((task) => ({
-        ...task,
-        type: task.type === "todo" ? "Todo" : task.type === "recurring" ? "Recurring" : "Project",
-      })) as Task[];
+        // Get recurring tasks for today
+        const today = new Date();
+        const dayOfWeek = today.getDay().toString();
+        const recurringTasks = (allTasks || [])
+          .filter(task => 
+            task.type === "Recurring" && 
+            task.recurring_days?.includes(dayOfWeek)
+          );
 
-      const sortedTasks = tasksWithProjects.sort((a, b) => {
-        if (a.completed === b.completed) {
-          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+        // Combine and sort tasks
+        const tasksWithProjects = [...todoTasks, ...recurringTasks].map((task) => ({
+          ...task,
+          type: task.type
+        })) as Task[];
+
+        const sortedTasks = sortTasks(tasksWithProjects);
+        
+        setTasks(sortedTasks);
+        return;
+      }
+
+      // Fetch project tasks
+      const { data: projectTasks, error: projectError } = await query;
+      if (projectError) throw projectError;
+
+      // Group tasks by project and sort by priority
+      const groupedTasks = (projectTasks || []).reduce((acc, task) => {
+        const projectId = task.project_id || 'no_project';
+        if (!acc[projectId]) {
+          acc[projectId] = [];
         }
-        return a.completed ? 1 : -1;
+        acc[projectId].push(task);
+        return acc;
+      }, {} as Record<string, Task[]>);
+
+      // Sort tasks within each project by priority
+      Object.keys(groupedTasks).forEach(projectId => {
+        groupedTasks[projectId].sort((a, b) => {
+          const priorityOrder = { High: 0, Medium: 1, Low: 2 };
+          return (priorityOrder[a.priority as keyof typeof priorityOrder] || 3) - 
+                 (priorityOrder[b.priority as keyof typeof priorityOrder] || 3);
+        });
       });
-      
-      setTasks(sortedTasks);
+
+      // Flatten grouped tasks back into array
+      const sortedProjectTasks = Object.values(groupedTasks).flat();
+      setTasks(sortedProjectTasks);
     } catch (error) {
       console.error("Error fetching tasks:", error);
       toast({
@@ -77,7 +124,7 @@ const TaskList = () => {
         variant: "destructive",
       });
     }
-  }, [toast]);
+  }, [toast, view]);
 
   useEffect(() => {
     fetchTasks();
@@ -117,12 +164,30 @@ const TaskList = () => {
       const task = tasks.find(t => t.id === taskId);
       if (!task) return;
 
-      const { error } = await supabase
-        .from("tasks")
-        .update({ completed })
-        .eq("id", taskId);
+      if (task.type === "Recurring") {
+        if (completed) {
+          // For recurring tasks, create a completion record
+          await createCompletedRecurringTaskInstance(taskId, task.user_id);
+        } else {
+          // Delete today's completion record
+          const today = new Date().toISOString().split('T')[0];
+          await supabase
+            .from('recurring_task_completions')
+            .delete()
+            .match({
+              task_id: taskId,
+              completed_date: today
+            });
+        }
+      } else {
+        // For regular tasks, update the task itself
+        const { error } = await supabase
+          .from("tasks")
+          .update({ completed })
+          .eq("id", taskId);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       // Optimistically update UI
       setTasks(prev =>
@@ -140,16 +205,32 @@ const TaskList = () => {
     }
   };
 
-  const getPriorityBorder = (priority: string) => {
+  const handleEditTask = (task: Task) => {
+    setSelectedTask(task);
+    setIsSheetOpen(true);
+  };
+
+  const sortTasks = (tasks: Task[]) => {
+    const priorityOrder = { High: 0, Medium: 1, Low: 2 };
+    return [...tasks].sort((a, b) => {
+      if (a.completed !== b.completed) {
+        return a.completed ? 1 : -1;
+      }
+      return (priorityOrder[a.priority as keyof typeof priorityOrder] || 3) - 
+             (priorityOrder[b.priority as keyof typeof priorityOrder] || 3);
+    });
+  };
+
+  const getPriorityBadgeVariant = (priority: string) => {
     switch (priority) {
-      case "High":
-        return "border-red-500";
-      case "Medium":
-        return "border-yellow-500";
-      case "Low":
-        return "border-green-500";
+      case 'High':
+        return 'destructive';
+      case 'Medium':
+        return 'warning';
+      case 'Low':
+        return 'outline';
       default:
-        return "border-gray-200";
+        return 'secondary';
     }
   };
 
@@ -209,54 +290,56 @@ const TaskList = () => {
             </Button>
             
             {!todoCollapsed && (
-              <div className="space-y-2">
-                {tasks
-                  .filter(task => !task.completed)
-                  .map((task) => (
-                    <div
-                      key={task.id}
-                      className={`flex items-center gap-4 p-4 bg-card hover:bg-accent/50 rounded-lg border-2 transition-colors cursor-pointer ${getPriorityBorder(task.priority)}`}
-                      onClick={() => {
-                        setSelectedTask(task);
-                        setIsSheetOpen(true);
-                      }}
-                    >
-                      <Checkbox 
-                        checked={task.completed}
-                        onCheckedChange={(checked) => {
-                          handleToggleComplete(task.id, checked as boolean);
-                          event?.stopPropagation();
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="h-5 w-5"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+              <div className="space-y-6">
+                {sortTasks(tasks.filter(task => !task.completed)).map((task) => (
+                  <div key={task.id} className="group">
+                    <div className="flex items-center justify-between py-3">
+                      <div className="flex items-center space-x-4">
+                        <Checkbox
+                          checked={task.completed}
+                          onCheckedChange={(checked) =>
+                            handleToggleComplete(task.id, checked as boolean)
+                          }
+                        />
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
                             <span className="font-medium">{task.name}</span>
-                            {task.projects?.name && (
-                              <Badge variant="outline" className="text-xs">
-                                <Tag className="h-3 w-3 mr-1" />
-                                {task.projects.name}
-                              </Badge>
+                            {task.type === 'Todo' && (
+                              <>
+                                <span className="text-sm text-muted-foreground">
+                                  {format(new Date(task.due_date), "MMM d")}
+                                </span>
+                                <span className="text-sm text-muted-foreground">
+                                  {format(parse(task.due_time, 'HH:mm:ss', new Date()), 'h a')}
+                                </span>
+                              </>
                             )}
                           </div>
-                          <Badge variant={task.type === 'Recurring' ? 'secondary' : 'outline'}>
-                            {task.type === 'Recurring' ? 'Recurring' : 'To Do'}
-                          </Badge>
-                        </div>
-                        {task.description && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {task.description}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span>Due: {format(new Date(task.due_date), "MMM d, yyyy")}</span>
-                          <span>{format(new Date(`2000-01-01T${task.due_time}`), "h:mm a")}</span>
+                          <div className="flex items-center space-x-2">
+                            <Badge variant={task.type === 'Recurring' ? 'secondary' : 'outline'}>
+                              {task.type}
+                            </Badge>
+                            <Badge variant={getPriorityBadgeVariant(task.priority)}>
+                              {task.priority}
+                            </Badge>
+                          </div>
                         </div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="opacity-0 group-hover:opacity-100"
+                        onClick={() => {
+                          setSelectedTask(task);
+                          setIsSheetOpen(true);
+                        }}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
                     </div>
-                  ))}
+                    <Separator />
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -278,54 +361,56 @@ const TaskList = () => {
             </Button>
             
             {!doneCollapsed && (
-              <div className="space-y-2">
-                {tasks
-                  .filter(task => task.completed)
-                  .map((task) => (
-                    <div
-                      key={task.id}
-                      className={`flex items-center gap-4 p-4 bg-card hover:bg-accent/50 rounded-lg border-2 transition-colors cursor-pointer ${getPriorityBorder(task.priority)} opacity-50`}
-                      onClick={() => {
-                        setSelectedTask(task);
-                        setIsSheetOpen(true);
-                      }}
-                    >
-                      <Checkbox 
-                        checked={task.completed}
-                        onCheckedChange={(checked) => {
-                          handleToggleComplete(task.id, checked as boolean);
-                          event?.stopPropagation();
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="h-5 w-5"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4">
+              <div className="space-y-6">
+                {sortTasks(tasks.filter(task => task.completed)).map((task) => (
+                  <div key={task.id} className="group">
+                    <div className="flex items-center justify-between py-3">
+                      <div className="flex items-center space-x-4">
+                        <Checkbox
+                          checked={task.completed}
+                          onCheckedChange={(checked) =>
+                            handleToggleComplete(task.id, checked as boolean)
+                          }
+                        />
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
                             <span className="font-medium">{task.name}</span>
-                            {task.projects?.name && (
-                              <Badge variant="outline" className="text-xs">
-                                <Tag className="h-3 w-3 mr-1" />
-                                {task.projects.name}
-                              </Badge>
+                            {task.type === 'Todo' && (
+                              <>
+                                <span className="text-sm text-muted-foreground">
+                                  {format(new Date(task.due_date), "MMM d")}
+                                </span>
+                                <span className="text-sm text-muted-foreground">
+                                  {format(parse(task.due_time, 'HH:mm:ss', new Date()), 'h a')}
+                                </span>
+                              </>
                             )}
                           </div>
-                          <Badge variant={task.type === 'Recurring' ? 'secondary' : 'outline'}>
-                            {task.type === 'Recurring' ? 'Recurring' : 'To Do'}
-                          </Badge>
-                        </div>
-                        {task.description && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {task.description}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                          <span>Due: {format(new Date(task.due_date), "MMM d, yyyy")}</span>
-                          <span>{format(new Date(`2000-01-01T${task.due_time}`), "h:mm a")}</span>
+                          <div className="flex items-center space-x-2">
+                            <Badge variant={task.type === 'Recurring' ? 'secondary' : 'outline'}>
+                              {task.type}
+                            </Badge>
+                            <Badge variant={getPriorityBadgeVariant(task.priority)}>
+                              {task.priority}
+                            </Badge>
+                          </div>
                         </div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="opacity-0 group-hover:opacity-100"
+                        onClick={() => {
+                          setSelectedTask(task);
+                          setIsSheetOpen(true);
+                        }}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
                     </div>
-                  ))}
+                    <Separator />
+                  </div>
+                ))}
               </div>
             )}
           </div>

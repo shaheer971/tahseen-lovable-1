@@ -102,7 +102,7 @@ const ProjectDetails = () => {
                 New Task
               </Button>
             )}
-            <div className="flex items-center gap-2 bg-white rounded-lg border p-1">
+            <div className="flex items-center gap-2 bg-background rounded-lg border p-1">
               <Button
                 variant={view === "list" ? "default" : "ghost"}
                 size="sm"

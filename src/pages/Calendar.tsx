@@ -7,11 +7,12 @@ import { Task } from "@/components/tasks/types";
 import { ProjectTask } from "@/components/projects/types";
 import CalendarView from "@/components/calendar/CalendarView";
 import { toast } from "sonner";
+import { format } from "date-fns";
 
 type ViewType = "day" | "week" | "month";
 
 const Calendar = () => {
-  const [viewType, setViewType] = useState<ViewType>("month");
+  const [viewType, setViewType] = useState<ViewType>("week");
   const [currentDate, setCurrentDate] = useState(new Date());
 
   // Fetch regular tasks
@@ -71,25 +72,57 @@ const Calendar = () => {
   };
 
   return (
-    <div className="p-6 mt-14 ml-16">
-      <div className="space-y-6">
+    <div className="p- mt-0 ml-0">
+      <div className="space-y-">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Calendar</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold">Calendar</h1>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  const newDate = new Date(currentDate);
+                  newDate.setDate(currentDate.getDate() - 7);
+                  setCurrentDate(newDate);
+                }}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-medium min-w-[100px] text-center">
+                {format(currentDate, "MMMM d")}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  const newDate = new Date(currentDate);
+                  newDate.setDate(currentDate.getDate() + 7);
+                  setCurrentDate(newDate);
+                }}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="border rounded-lg p-1 flex gap-1">
             <Button
-              variant={viewType === "day" ? "default" : "outline"}
+              variant={viewType === "day" ? "default" : "ghost"}
+              size="sm"
               onClick={() => setViewType("day")}
             >
               Day
             </Button>
             <Button
-              variant={viewType === "week" ? "default" : "outline"}
+              variant={viewType === "week" ? "default" : "ghost"}
+              size="sm"
               onClick={() => setViewType("week")}
             >
               Week
             </Button>
             <Button
-              variant={viewType === "month" ? "default" : "outline"}
+              variant={viewType === "month" ? "default" : "ghost"}
+              size="sm"
               onClick={() => setViewType("month")}
             >
               Month

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,13 +19,19 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { format } from "date-fns";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Plus } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 interface CreateTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  defaultDate?: Date | null;
 }
 
-const CreateTaskDialog = ({ open, onOpenChange }: CreateTaskDialogProps) => {
+const CreateTaskDialog = ({ open, onOpenChange, defaultDate }: CreateTaskDialogProps) => {
   const { toast } = useToast();
   const { session } = useAuth();
   const [formData, setFormData] = useState({
@@ -32,7 +39,7 @@ const CreateTaskDialog = ({ open, onOpenChange }: CreateTaskDialogProps) => {
     description: "",
     priority: "",
     type: "",
-    dueDate: "",
+    dueDate: defaultDate ? format(defaultDate, "yyyy-MM-dd") : "",
     dueTime: "12:00",
   });
 
@@ -48,7 +55,17 @@ const CreateTaskDialog = ({ open, onOpenChange }: CreateTaskDialogProps) => {
       return;
     }
 
+    if (!formData.name || !formData.priority || !formData.type || !formData.dueDate || !formData.dueTime) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
+      // Get the highest position for ordering
       const { data: tasksData } = await supabase
         .from("tasks")
         .select("position")
@@ -58,16 +75,21 @@ const CreateTaskDialog = ({ open, onOpenChange }: CreateTaskDialogProps) => {
 
       const nextPosition = tasksData && tasksData[0] ? tasksData[0].position + 1 : 0;
 
-      const { error } = await supabase.from("tasks").insert({
-        name: formData.name,
-        description: formData.description,
-        priority: formData.priority,
-        type: formData.type,
-        due_date: new Date(formData.dueDate).toISOString(),
-        due_time: formData.dueTime + ":00",
-        position: nextPosition,
-        user_id: session.user.id,
-      });
+      // Insert the new task
+      const { error } = await supabase
+        .from("tasks")
+        .insert({
+          name: formData.name,
+          description: formData.description || "",
+          priority: formData.priority as "Low" | "Medium" | "High",
+          type: formData.type as "Todo" | "Recurring",
+          due_date: formData.dueDate,
+          due_time: formData.dueTime,
+          completed: false,
+          position: nextPosition,
+          user_id: session.user.id,
+          recurring_days: formData.type === "Recurring" ? ["0", "1", "2", "3", "4", "5", "6"] : null,
+        });
 
       if (error) throw error;
 
@@ -81,121 +103,139 @@ const CreateTaskDialog = ({ open, onOpenChange }: CreateTaskDialogProps) => {
         description: "",
         priority: "",
         type: "",
-        dueDate: "",
+        dueDate: defaultDate ? format(defaultDate, "yyyy-MM-dd") : "",
         dueTime: "12:00",
       });
+
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating task:", error);
       toast({
         title: "Error",
-        description: "Failed to create task",
+        description: error.message || "Failed to create task",
         variant: "destructive",
       });
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create New Task</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label>Name</label>
-            <Input
-              placeholder="Task name"
-              value={formData.name}
-              onChange={(e) =>
-                setFormData({ ...formData, name: e.target.value })
-              }
-              required
-            />
+    <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
+      <SheetContent 
+        side="right" 
+        className="w-[400px] p-0"
+      >
+        <ScrollArea className="h-screen">
+          <div className="p-6">
+            <SheetHeader className="mb-6">
+              <SheetTitle>Create New Task</SheetTitle>
+              <SheetDescription>
+                Add a new task to your calendar
+              </SheetDescription>
+            </SheetHeader>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <Label>Task Name</Label>
+                <Input
+                  placeholder="Enter task name"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  placeholder="Enter task description"
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  className="min-h-[100px]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select
+                  value={formData.priority}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, priority: value })
+                  }
+                  required
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Low">Low</SelectItem>
+                    <SelectItem value="Medium">Medium</SelectItem>
+                    <SelectItem value="High">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select
+                  value={formData.type}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, type: value })
+                  }
+                  required
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Todo">Todo</SelectItem>
+                    <SelectItem value="Recurring">Recurring</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Due Date</Label>
+                  <Input
+                    type="date"
+                    value={formData.dueDate}
+                    onChange={(e) =>
+                      setFormData({ ...formData, dueDate: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Due Time</Label>
+                  <Input
+                    type="time"
+                    value={formData.dueTime}
+                    onChange={(e) =>
+                      setFormData({ ...formData, dueTime: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit">Create Task</Button>
+              </div>
+            </form>
           </div>
-          <div className="space-y-2">
-            <label>Description</label>
-            <Textarea
-              placeholder="Task description"
-              value={formData.description}
-              onChange={(e) =>
-                setFormData({ ...formData, description: e.target.value })
-              }
-            />
-          </div>
-          <div className="space-y-2">
-            <label>Priority</label>
-            <Select
-              value={formData.priority}
-              onValueChange={(value) =>
-                setFormData({ ...formData, priority: value })
-              }
-              required
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select priority" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Low">Low</SelectItem>
-                <SelectItem value="Medium">Medium</SelectItem>
-                <SelectItem value="High">High</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <label>Type</label>
-            <Select
-              value={formData.type}
-              onValueChange={(value) =>
-                setFormData({ ...formData, type: value })
-              }
-              required
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Todo">Todo</SelectItem>
-                <SelectItem value="Project">Project</SelectItem>
-                <SelectItem value="Recurring">Recurring</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <label>Due Date</label>
-            <Input
-              type="date"
-              value={formData.dueDate}
-              onChange={(e) =>
-                setFormData({ ...formData, dueDate: e.target.value })
-              }
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <label>Due Time</label>
-            <Input
-              type="time"
-              value={formData.dueTime}
-              onChange={(e) =>
-                setFormData({ ...formData, dueTime: e.target.value })
-              }
-              required
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit">Create Task</Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
   );
 };
 

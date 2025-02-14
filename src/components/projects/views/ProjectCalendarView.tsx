@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, startOfMonth, endOfMonth, isSameMonth } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ProjectTask } from "../types";
+import TaskSheet from "@/components/tasks/TaskSheet";
 
 type CalendarViewType = "day" | "week" | "month";
 
@@ -15,6 +16,9 @@ interface ProjectCalendarViewProps {
 const ProjectCalendarView = ({ projectId }: ProjectCalendarViewProps) => {
   const [viewType, setViewType] = useState<CalendarViewType>("month");
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: tasks = [] } = useQuery({
     queryKey: ['project-tasks', projectId],
@@ -68,6 +72,11 @@ const ProjectCalendarView = ({ projectId }: ProjectCalendarViewProps) => {
     setCurrentDate(newDate);
   };
 
+  const handleTaskClick = (task: ProjectTask) => {
+    setSelectedTask(task);
+    setIsSheetOpen(true);
+  };
+
   const renderDayView = () => {
     const dayTasks = tasks.filter(task => 
       isSameDay(new Date(task.due_date), currentDate)
@@ -109,7 +118,7 @@ const ProjectCalendarView = ({ projectId }: ProjectCalendarViewProps) => {
                 {dayTasks.map(task => (
                   <div
                     key={task.id}
-                    className="bg-blue-100 p-2 rounded text-sm"
+                    className="bg-primary/10 p-2 rounded text-sm text-foreground"
                   >
                     {task.name}
                   </div>
@@ -143,15 +152,16 @@ const ProjectCalendarView = ({ projectId }: ProjectCalendarViewProps) => {
             <div
               key={day.toISOString()}
               className={`min-h-[120px] rounded border p-2 ${
-                !isSameMonth(day, currentDate) ? "bg-gray-50" : ""
+                !isSameMonth(day, currentDate) ? "bg-muted" : "bg-card"
               }`}
             >
-              <div className="text-right text-sm">{format(day, "d")}</div>
+              <div className="text-right text-sm text-muted-foreground">{format(day, "d")}</div>
               <div className="mt-1 space-y-1">
                 {dayTasks.map(task => (
                   <div
                     key={task.id}
-                    className="bg-blue-100 p-1 rounded text-xs"
+                    className="bg-primary/10 p-1 rounded text-xs text-foreground hover:bg-primary/20 cursor-pointer"
+                    onClick={() => handleTaskClick(task)}
                   >
                     {task.name}
                   </div>
@@ -182,7 +192,7 @@ const ProjectCalendarView = ({ projectId }: ProjectCalendarViewProps) => {
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <span className="text-lg font-semibold">
+          <span className="text-lg font-semibold text-foreground">
             {format(currentDate, "MMMM yyyy")}
           </span>
         </div>
@@ -207,11 +217,27 @@ const ProjectCalendarView = ({ projectId }: ProjectCalendarViewProps) => {
           </Button>
         </div>
       </div>
-      <div className="bg-white rounded-lg shadow p-4">
-        {viewType === "day" && renderDayView()}
-        {viewType === "week" && renderWeekView()}
-        {viewType === "month" && renderMonthView()}
-      </div>
+      {viewType === "day" && renderDayView()}
+      {viewType === "week" && (
+        <div className="bg-background rounded-lg border">
+          {renderWeekView()}
+        </div>
+      )}
+      {viewType === "month" && (
+        <div className="bg-background rounded-lg border">
+          {renderMonthView()}
+        </div>
+      )}
+      <TaskSheet
+        open={isSheetOpen}
+        onOpenChange={setIsSheetOpen}
+        task={selectedTask}
+        projectId={projectId}
+        onClose={() => {
+          setSelectedTask(null);
+          queryClient.invalidateQueries({ queryKey: ['project-tasks'] });
+        }}
+      />
     </div>
   );
 };
