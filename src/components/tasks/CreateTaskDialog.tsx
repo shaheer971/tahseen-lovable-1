@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import {
   Sheet,
@@ -17,13 +18,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus } from "lucide-react";
+import { Plus, PlusCircle } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface CreateTaskDialogProps {
   open: boolean;
@@ -32,17 +35,36 @@ interface CreateTaskDialogProps {
   onSuccess?: () => void;
 }
 
+interface Subtask {
+  name: string;
+}
+
 const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: CreateTaskDialogProps) => {
   const { toast } = useToast();
   const { session } = useAuth();
+  const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     name: "",
     description: "",
-    priority: "",
+    priority: "Medium" as "Low" | "Medium" | "High",
     type: "",
     dueDate: defaultDate ? format(defaultDate, "yyyy-MM-dd") : "",
     dueTime: "12:00",
   });
+  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+  const [newSubtask, setNewSubtask] = useState("");
+
+  const handleAddSubtask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSubtask.trim()) return;
+
+    setSubtasks([...subtasks, { name: newSubtask.trim() }]);
+    setNewSubtask("");
+  };
+
+  const removeSubtask = (index: number) => {
+    setSubtasks(subtasks.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,12 +97,13 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
 
       const nextPosition = tasksData && tasksData[0] ? tasksData[0].position + 1 : 0;
 
-      const { error } = await supabase
+      // Create main task
+      const { data: mainTask, error: mainTaskError } = await supabase
         .from("tasks")
         .insert({
           name: formData.name,
           description: formData.description || "",
-          priority: formData.priority as "Low" | "Medium" | "High",
+          priority: formData.priority,
           type: formData.type as "Todo" | "Recurring",
           due_date: formData.dueDate,
           due_time: formData.dueTime,
@@ -88,9 +111,34 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
           position: nextPosition,
           user_id: session.user.id,
           recurring_days: formData.type === "Recurring" ? ["0", "1", "2", "3", "4", "5", "6"] : null,
-        });
+          is_subtask: false,
+        })
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (mainTaskError) throw mainTaskError;
+
+      // Create subtasks if any
+      if (subtasks.length > 0 && mainTask) {
+        const subtaskInserts = subtasks.map((subtask, index) => ({
+          name: subtask.name,
+          user_id: session.user.id,
+          priority: formData.priority,
+          type: "Todo",
+          due_date: formData.dueDate,
+          due_time: formData.dueTime,
+          completed: false,
+          position: index,
+          is_subtask: true,
+          parent_task_id: mainTask.id,
+        }));
+
+        const { error: subtasksError } = await supabase
+          .from("tasks")
+          .insert(subtaskInserts);
+
+        if (subtasksError) throw subtasksError;
+      }
 
       toast({
         title: "Success",
@@ -100,11 +148,14 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
       setFormData({
         name: "",
         description: "",
-        priority: "",
+        priority: "Medium",
         type: "",
         dueDate: defaultDate ? format(defaultDate, "yyyy-MM-dd") : "",
         dueTime: "12:00",
       });
+      setSubtasks([]);
+
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
 
       if (onSuccess) {
         onSuccess();
@@ -164,7 +215,7 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
                 <Label>Priority</Label>
                 <Select
                   value={formData.priority}
-                  onValueChange={(value) =>
+                  onValueChange={(value: "Low" | "Medium" | "High") =>
                     setFormData({ ...formData, priority: value })
                   }
                   required
@@ -221,6 +272,41 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
                     }
                     required
                   />
+                </div>
+              </div>
+
+              {/* Subtasks Section */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label>Subtasks</Label>
+                </div>
+                
+                <div className="space-y-2">
+                  {subtasks.map((subtask, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <span className="text-sm flex-1">{subtask.name}</span>
+                      <Button 
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeSubtask(index)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                  
+                  <form onSubmit={handleAddSubtask} className="flex gap-2">
+                    <Input
+                      value={newSubtask}
+                      onChange={(e) => setNewSubtask(e.target.value)}
+                      placeholder="New subtask name"
+                      className="flex-1"
+                    />
+                    <Button type="submit" size="sm">
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </form>
                 </div>
               </div>
 

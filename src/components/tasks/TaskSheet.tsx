@@ -302,6 +302,7 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: ['subtasks', task.id] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setSubtaskName("");
       setShowSubtaskInput(false);
       toast({
@@ -328,6 +329,7 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: ['subtasks', task?.id] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       toast({
         title: "Success",
         description: `Subtask ${completed ? "completed" : "uncompleted"}`,
