@@ -17,9 +17,7 @@ export interface Task {
   projects?: {
     name: string;
   } | null;
-  status?: "todo" | "in-progress" | "done";
   parent_task_id?: string | null;
   is_subtask: boolean;
   subtasks?: Task[];
 }
-

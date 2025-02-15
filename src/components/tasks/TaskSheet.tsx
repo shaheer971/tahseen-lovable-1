@@ -51,6 +51,7 @@ interface TaskSheetProps {
 const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, projectId, onClose }: TaskSheetProps) => {
   const { session } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -64,7 +65,6 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
   const [showSubtaskInput, setShowSubtaskInput] = useState(false);
   const [subtaskName, setSubtaskName] = useState("");
   const [showSubtasks, setShowSubtasks] = useState(true);
-  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (task) {
@@ -289,10 +289,10 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
           user_id: session.user.id,
           parent_task_id: task.id,
           is_subtask: true,
-          priority: task.priority,
+          priority: formData.priority || "Medium",
           type: "Todo",
-          due_date: task.due_date,
-          due_time: task.due_time,
+          due_date: formData.dueDate,
+          due_time: formData.dueTime,
           position: nextPosition,
           completed: false,
         })
