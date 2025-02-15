@@ -111,7 +111,7 @@ const TodayTasks = () => {
   };
 
   const onDragEnd = async (result: DropResult) => {
-    if (!result.destination || !tasks) return;
+    if (!result.destination || !tasks || !session?.user?.id) return;
 
     const items = Array.from(tasks);
     const [reorderedItem] = items.splice(result.source.index, 1);
@@ -125,11 +125,14 @@ const TodayTasks = () => {
       const updates = items.map((task, index) => ({
         id: task.id,
         position: index,
+        user_id: session.user.id // Add this line to include user_id in the update
       }));
 
       const { error } = await supabase
         .from('tasks')
-        .upsert(updates);
+        .upsert(updates, {
+          onConflict: 'id'
+        });
 
       if (error) throw error;
     } catch (error) {
