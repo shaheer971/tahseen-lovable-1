@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Task } from "./types";
@@ -5,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { CreateTaskDialog } from "./CreateTaskDialog";
-import { TaskSheet } from "./TaskSheet";
+import CreateTaskDialog from "./CreateTaskDialog";
+import TaskSheet from "./TaskSheet";
 import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -113,7 +114,7 @@ const TaskList = () => {
 
       if (mainTasksError) throw mainTasksError;
 
-      // Fetch subtasks for each main task
+      // Fetch subtasks for each main task and ensure proper typing
       const tasksWithSubtasks = await Promise.all(
         (mainTasks || []).map(async (task) => {
           const { data: subtasks, error: subtasksError } = await supabase
@@ -125,10 +126,19 @@ const TaskList = () => {
 
           if (subtasksError) throw subtasksError;
 
-          return {
+          // Ensure proper typing for the main task and its subtasks
+          const typedTask: Task = {
             ...task,
-            subtasks: subtasks || [],
+            priority: task.priority as "Low" | "Medium" | "High",
+            type: task.type as "Todo" | "Recurring" | "Project",
+            subtasks: (subtasks || []).map(subtask => ({
+              ...subtask,
+              priority: subtask.priority as "Low" | "Medium" | "High",
+              type: subtask.type as "Todo" | "Recurring" | "Project"
+            }))
           };
+
+          return typedTask;
         })
       );
 
