@@ -40,7 +40,6 @@ interface Subtask {
 }
 
 const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: CreateTaskDialogProps) => {
-  const { toast } = useToast();
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
