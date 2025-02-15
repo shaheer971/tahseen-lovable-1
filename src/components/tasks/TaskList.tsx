@@ -74,7 +74,7 @@ const TaskList = () => {
             .eq("is_subtask", true)
             .order("position");
 
-          return {
+          const processedTask: Task = {
             ...task,
             priority: validatePriority(task.priority),
             type: validateType(task.type),
@@ -83,8 +83,18 @@ const TaskList = () => {
             description: task.description || "",
             project_id: task.project_id || null,
             projects: task.projects || null,
-            subtasks: subtasks || []
+            is_subtask: task.is_subtask || false,
+            subtasks: (subtasks || []).map(st => ({
+              ...st,
+              priority: validatePriority(st.priority),
+              type: validateType(st.type),
+              completed: st.completed || false,
+              recurring_days: st.recurring_days || [],
+              is_subtask: true,
+            })) as Task[]
           };
+
+          return processedTask;
         })
       );
 

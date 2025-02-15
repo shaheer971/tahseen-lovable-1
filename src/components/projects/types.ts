@@ -26,6 +26,8 @@ export interface ProjectTask {
   completed: boolean;
   created_at: string;
   updated_at: string;
+  is_subtask: boolean;
+  parent_task_id?: string | null;
 }
 
 export interface ProjectNote {
