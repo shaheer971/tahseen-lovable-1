@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { format, isSameDay, parse } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -122,19 +121,16 @@ const TodayTasks = () => {
 
     // Update positions in the database
     try {
-      const updates = items.map((task, index) => ({
-        id: task.id,
-        position: index,
-        user_id: session.user.id // Add this line to include user_id in the update
-      }));
+      // Update each task's position one by one
+      for (const [index, task] of items.entries()) {
+        const { error } = await supabase
+          .from('tasks')
+          .update({ position: index })
+          .eq('id', task.id)
+          .eq('user_id', session.user.id);
 
-      const { error } = await supabase
-        .from('tasks')
-        .upsert(updates, {
-          onConflict: 'id'
-        });
-
-      if (error) throw error;
+        if (error) throw error;
+      }
     } catch (error) {
       console.error('Error updating task positions:', error);
       toast({
