@@ -39,7 +39,7 @@ const TodayTasks = () => {
         .from('tasks')
         .select(`
           *,
-          subtasks:tasks(*)
+          subtasks:tasks!tasks_parent_task_id_fkey(*)
         `)
         .eq('user_id', session.user.id)
         .eq('due_date', format(today, 'yyyy-MM-dd'))
