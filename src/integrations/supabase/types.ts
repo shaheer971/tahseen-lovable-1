@@ -408,13 +408,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "fk_parent_task"
-            columns: ["parent_task_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "tasks_parent_task_id_fkey"
             columns: ["parent_task_id"]
             isOneToOne: false
