@@ -35,24 +35,34 @@ const TodayTasks = () => {
     queryFn: async () => {
       if (!session?.user?.id) return [];
 
-      const { data, error } = await supabase
+      // First, get all parent tasks for today
+      const { data: parentTasks, error: parentError } = await supabase
         .from('tasks')
-        .select(`
-          *,
-          subtasks:tasks!tasks_parent_task_id_fkey(*)
-        `)
+        .select('*')
         .eq('user_id', session.user.id)
         .eq('due_date', format(today, 'yyyy-MM-dd'))
         .is('is_subtask', false)
         .order('position');
 
-      if (error) throw error;
+      if (parentError) throw parentError;
 
-      return data.map(task => ({
+      // Then get all subtasks for these parent tasks
+      const parentIds = parentTasks.map(task => task.id);
+      const { data: subtasks, error: subtasksError } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .in('parent_task_id', parentIds)
+        .is('is_subtask', true);
+
+      if (subtasksError) throw subtasksError;
+
+      // Combine the tasks with their subtasks
+      return parentTasks.map(task => ({
         ...task,
         priority: task.priority as "Low" | "Medium" | "High",
         type: task.type as "Todo" | "Recurring" | "Project",
-        subtasks: task.subtasks || []
+        subtasks: subtasks.filter(subtask => subtask.parent_task_id === task.id) || []
       })) as Task[];
     },
     enabled: !!session?.user?.id
