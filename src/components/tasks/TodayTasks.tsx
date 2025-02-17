@@ -37,7 +37,7 @@ const TodayTasks = () => {
 
       const { data, error } = await supabase
         .from('tasks')
-        .select('*, subtasks:tasks!parent_task_id(*)')
+        .select('*, subtasks:tasks!tasks_parent_task_id_fkey(*)')
         .eq('user_id', session.user.id)
         .eq('due_date', format(today, 'yyyy-MM-dd'))
         .is('is_subtask', false)
