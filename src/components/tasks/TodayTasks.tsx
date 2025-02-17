@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { format, isSameDay, parse } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,23 +10,23 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
-import { Plus } from "lucide-react";
+import { Plus, ChevronRight, ChevronDown } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import CreateTaskDialog from "./CreateTaskDialog";
 import TaskSheet from "./TaskSheet";
 import { DragDropContext, Draggable, Droppable, DropResult } from "@hello-pangea/dnd";
 
 const priorityColors = {
-  Low: "bg-green-100 text-green-800",
-  Medium: "bg-yellow-100 text-yellow-800",
-  High: "bg-purple-100 text-purple-800"
+  Low: "text-green-600",
+  Medium: "text-yellow-600",
+  High: "text-purple-600"
 };
 
 const TodayTasks = () => {
   const { session } = useAuth();
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
   const queryClient = useQueryClient();
   const today = new Date();
 
@@ -36,9 +37,10 @@ const TodayTasks = () => {
 
       const { data, error } = await supabase
         .from('tasks')
-        .select('*, projects(name)')
+        .select('*, subtasks:tasks!parent_task_id(*)')
         .eq('user_id', session.user.id)
         .eq('due_date', format(today, 'yyyy-MM-dd'))
+        .is('is_subtask', false)
         .order('position');
 
       if (error) throw error;
@@ -46,7 +48,8 @@ const TodayTasks = () => {
       return data.map(task => ({
         ...task,
         priority: task.priority as "Low" | "Medium" | "High",
-        type: task.type as "Todo" | "Recurring" | "Project"
+        type: task.type as "Todo" | "Recurring" | "Project",
+        subtasks: task.subtasks || []
       })) as Task[];
     },
     enabled: !!session?.user?.id
@@ -54,18 +57,9 @@ const TodayTasks = () => {
 
   const calculateProgress = () => {
     if (!tasks.length) return 0;
-    const completedTasks = tasks.filter(task => task.completed).length;
-    return (completedTasks / tasks.length) * 100;
-  };
-
-  const getBadgeLevel = () => {
-    const progress = calculateProgress();
-    if (progress === 0) return { label: "Getting Started", variant: "secondary" as const };
-    if (progress < 25) return { label: "Beginner", variant: "default" as const };
-    if (progress < 50) return { label: "Rising Star", variant: "outline" as const };
-    if (progress < 75) return { label: "Achiever", variant: "destructive" as const };
-    if (progress < 100) return { label: "Expert", variant: "secondary" as const };
-    return { label: "Master", variant: "default" as const };
+    const allTasks = tasks.flatMap(task => [task, ...task.subtasks || []]);
+    const completedTasks = allTasks.filter(task => task.completed).length;
+    return (completedTasks / allTasks.length) * 100;
   };
 
   const handleTaskComplete = async (taskId: string, completed: boolean) => {
@@ -92,12 +86,12 @@ const TodayTasks = () => {
     }
   };
 
-  const handleCreateTask = () => {
-    setCreateTaskOpen(true);
-  };
-
-  const handleTaskClick = (task: Task) => {
-    setSelectedTask(task);
+  const toggleTaskExpansion = (taskId: string) => {
+    setExpandedTasks(prev => 
+      prev.includes(taskId) 
+        ? prev.filter(id => id !== taskId)
+        : [...prev, taskId]
+    );
   };
 
   const formatTaskTime = (time: string) => {
@@ -119,9 +113,7 @@ const TodayTasks = () => {
     // Update positions in the UI immediately
     queryClient.setQueryData(['today-tasks', format(today, 'yyyy-MM-dd')], items);
 
-    // Update positions in the database
     try {
-      // Update each task's position one by one
       for (const [index, task] of items.entries()) {
         const { error } = await supabase
           .from('tasks')
@@ -138,7 +130,6 @@ const TodayTasks = () => {
         description: "Failed to update task order",
         variant: "destructive",
       });
-      // Revert the optimistic update
       queryClient.invalidateQueries({ queryKey: ['today-tasks'] });
     }
   };
@@ -155,7 +146,7 @@ const TodayTasks = () => {
             variant="ghost" 
             size="icon"
             className="h-8 w-8"
-            onClick={handleCreateTask}
+            onClick={() => setCreateTaskOpen(true)}
           >
             <Plus className="h-4 w-4" />
           </Button>
@@ -163,10 +154,8 @@ const TodayTasks = () => {
         
         <div className="space-y-2">
           <Progress value={calculateProgress()} className="h-1.5" />
-          <div className="flex justify-end">
-            <Badge variant={getBadgeLevel().variant}>
-              {getBadgeLevel().label}
-            </Badge>
+          <div className="text-sm text-muted-foreground text-right">
+            {Math.round(calculateProgress())}% completed
           </div>
         </div>
 
@@ -188,50 +177,128 @@ const TodayTasks = () => {
                       {tasks.map((task, index) => (
                         <Draggable key={task.id} draggableId={task.id} index={index}>
                           {(provided) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              {...provided.dragHandleProps}
-                              onClick={() => handleTaskClick(task)}
-                              className={cn(
-                                "p-2 rounded-md mb-1 cursor-pointer transition-all border",
-                                "bg-accent/50 hover:bg-accent"
-                              )}
-                            >
-                              <div className="flex items-center gap-2">
-                                <Checkbox
-                                  checked={task.completed}
-                                  onCheckedChange={(checked) => {
-                                    handleTaskComplete(task.id, checked as boolean);
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="h-4 w-4"
-                                />
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className={cn(
-                                      "text-sm font-medium",
-                                      task.completed && "line-through text-muted-foreground"
-                                    )}>
-                                      {task.name}
-                                    </span>
-                                    <Badge 
-                                      variant="outline"
-                                      className={cn(
-                                        "text-xs",
-                                        priorityColors[task.priority]
-                                      )}
-                                    >
-                                      {task.priority}
-                                    </Badge>
-                                  </div>
-                                  {task.due_time && (
-                                    <div className="text-xs text-muted-foreground">
-                                      {formatTaskTime(task.due_time)}
+                            <div>
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                className={cn(
+                                  "p-3 rounded-md cursor-pointer transition-all border",
+                                  "bg-background hover:bg-accent/50"
+                                )}
+                              >
+                                <div className="space-y-2">
+                                  <div className="flex items-start gap-2">
+                                    <Checkbox
+                                      checked={task.completed}
+                                      onCheckedChange={(checked) => {
+                                        handleTaskComplete(task.id, checked as boolean);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="mt-1"
+                                    />
+                                    <div className="flex-1" onClick={() => setSelectedTask(task)}>
+                                      <div className="flex items-start justify-between">
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-2">
+                                            {task.subtasks?.length > 0 && (
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-4 w-4 p-0"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  toggleTaskExpansion(task.id);
+                                                }}
+                                              >
+                                                {expandedTasks.includes(task.id) ? (
+                                                  <ChevronDown className="h-4 w-4" />
+                                                ) : (
+                                                  <ChevronRight className="h-4 w-4" />
+                                                )}
+                                              </Button>
+                                            )}
+                                            <span className={cn(
+                                              "font-medium",
+                                              task.completed && "line-through text-muted-foreground"
+                                            )}>
+                                              {task.name}
+                                            </span>
+                                          </div>
+                                          {task.description && (
+                                            <p className="text-sm text-muted-foreground">
+                                              {task.description}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2 text-sm">
+                                          <span className={cn(
+                                            "font-medium",
+                                            priorityColors[task.priority]
+                                          )}>
+                                            {task.priority}
+                                          </span>
+                                          {task.due_time && (
+                                            <span className="text-muted-foreground">
+                                              {formatTaskTime(task.due_time)}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
                                     </div>
-                                  )}
+                                  </div>
                                 </div>
                               </div>
+                              
+                              {/* Subtasks */}
+                              {expandedTasks.includes(task.id) && task.subtasks?.length > 0 && (
+                                <div className="ml-6 mt-1 space-y-1">
+                                  {task.subtasks.map((subtask) => (
+                                    <div
+                                      key={subtask.id}
+                                      className={cn(
+                                        "p-2 rounded-md cursor-pointer transition-all border",
+                                        "bg-background/50 hover:bg-accent/50"
+                                      )}
+                                      onClick={() => setSelectedTask(subtask)}
+                                    >
+                                      <div className="flex items-start gap-2">
+                                        <Checkbox
+                                          checked={subtask.completed}
+                                          onCheckedChange={(checked) => {
+                                            handleTaskComplete(subtask.id, checked as boolean);
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="mt-1"
+                                        />
+                                        <div className="flex-1">
+                                          <div className="flex items-start justify-between">
+                                            <span className={cn(
+                                              "font-medium",
+                                              subtask.completed && "line-through text-muted-foreground"
+                                            )}>
+                                              {subtask.name}
+                                            </span>
+                                            <div className="flex items-center gap-2 text-sm">
+                                              <span className={cn(
+                                                "font-medium",
+                                                priorityColors[subtask.priority]
+                                              )}>
+                                                {subtask.priority}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          {subtask.description && (
+                                            <p className="text-sm text-muted-foreground">
+                                              {subtask.description}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </Draggable>

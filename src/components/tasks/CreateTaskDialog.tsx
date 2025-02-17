@@ -37,6 +37,8 @@ interface CreateTaskDialogProps {
 
 interface Subtask {
   name: string;
+  description?: string;
+  priority: "Low" | "Medium" | "High";
 }
 
 const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: CreateTaskDialogProps) => {
@@ -51,14 +53,22 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
     dueTime: "12:00",
   });
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
-  const [newSubtask, setNewSubtask] = useState("");
+  const [newSubtask, setNewSubtask] = useState({
+    name: "",
+    description: "",
+    priority: "Medium" as "Low" | "Medium" | "High"
+  });
 
   const handleAddSubtask = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSubtask.trim()) return;
+    if (!newSubtask.name.trim()) return;
 
-    setSubtasks([...subtasks, { name: newSubtask.trim() }]);
-    setNewSubtask("");
+    setSubtasks([...subtasks, { ...newSubtask }]);
+    setNewSubtask({
+      name: "",
+      description: "",
+      priority: "Medium"
+    });
   };
 
   const removeSubtask = (index: number) => {
@@ -87,27 +97,17 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
     }
 
     try {
-      const { data: tasksData } = await supabase
-        .from("tasks")
-        .select("position")
-        .eq("user_id", session.user.id)
-        .order("position", { ascending: false })
-        .limit(1);
-
-      const nextPosition = tasksData && tasksData[0] ? tasksData[0].position + 1 : 0;
-
       // Create main task
       const { data: mainTask, error: mainTaskError } = await supabase
         .from("tasks")
         .insert({
           name: formData.name,
-          description: formData.description || "",
+          description: formData.description,
           priority: formData.priority,
           type: formData.type as "Todo" | "Recurring",
           due_date: formData.dueDate,
           due_time: formData.dueTime,
           completed: false,
-          position: nextPosition,
           user_id: session.user.id,
           recurring_days: formData.type === "Recurring" ? ["0", "1", "2", "3", "4", "5", "6"] : null,
           is_subtask: false,
@@ -121,12 +121,13 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
       if (subtasks.length > 0 && mainTask) {
         const subtaskInserts = subtasks.map((subtask, index) => ({
           name: subtask.name,
-          user_id: session.user.id,
-          priority: formData.priority,
+          description: subtask.description,
+          priority: subtask.priority,
           type: "Todo",
           due_date: formData.dueDate,
           due_time: formData.dueTime,
           completed: false,
+          user_id: session.user.id,
           position: index,
           is_subtask: true,
           parent_task_id: mainTask.id,
@@ -154,8 +155,6 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
       });
       setSubtasks([]);
 
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-
       if (onSuccess) {
         onSuccess();
       }
@@ -173,10 +172,7 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
-      <SheetContent 
-        side="right" 
-        className="w-[400px] p-0"
-      >
+      <SheetContent side="right" className="w-[400px] p-0">
         <ScrollArea className="h-screen">
           <div className="p-6">
             <SheetHeader className="mb-6">
@@ -186,6 +182,7 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
               </SheetDescription>
             </SheetHeader>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Main task fields */}
               <div className="space-y-2">
                 <Label>Task Name</Label>
                 <Input
@@ -280,32 +277,68 @@ const CreateTaskDialog = ({ open, onOpenChange, defaultDate, onSuccess }: Create
                   <Label>Subtasks</Label>
                 </div>
                 
-                <div className="space-y-2">
+                <div className="space-y-4">
                   {subtasks.map((subtask, index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <span className="text-sm flex-1">{subtask.name}</span>
-                      <Button 
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeSubtask(index)}
-                      >
-                        Remove
-                      </Button>
+                    <div key={index} className="flex flex-col gap-2 p-3 border rounded-lg bg-accent/50">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <div className="font-medium">{subtask.name}</div>
+                          {subtask.description && (
+                            <div className="text-sm text-muted-foreground">{subtask.description}</div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{subtask.priority}</span>
+                          <Button 
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeSubtask(index)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                   
-                  <form onSubmit={handleAddSubtask} className="flex gap-2">
-                    <Input
-                      value={newSubtask}
-                      onChange={(e) => setNewSubtask(e.target.value)}
-                      placeholder="New subtask name"
-                      className="flex-1"
-                    />
-                    <Button type="submit" size="sm">
-                      <Plus className="h-4 w-4" />
+                  <div className="space-y-3 p-3 border rounded-lg">
+                    <div className="space-y-2">
+                      <Input
+                        value={newSubtask.name}
+                        onChange={(e) => setNewSubtask({ ...newSubtask, name: e.target.value })}
+                        placeholder="Subtask name"
+                      />
+                      <Textarea
+                        value={newSubtask.description}
+                        onChange={(e) => setNewSubtask({ ...newSubtask, description: e.target.value })}
+                        placeholder="Subtask description (optional)"
+                        className="min-h-[60px]"
+                      />
+                      <Select
+                        value={newSubtask.priority}
+                        onValueChange={(value: "Low" | "Medium" | "High") =>
+                          setNewSubtask({ ...newSubtask, priority: value })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Low">Low</SelectItem>
+                          <SelectItem value="Medium">Medium</SelectItem>
+                          <SelectItem value="High">High</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button 
+                      type="button" 
+                      onClick={handleAddSubtask}
+                      className="w-full"
+                    >
+                      Add Subtask
                     </Button>
-                  </form>
+                  </div>
                 </div>
               </div>
 
