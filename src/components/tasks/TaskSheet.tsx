@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -23,20 +24,11 @@ import { Task } from "./types";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/ui/use-toast";
-import { PlusCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { PlusCircle, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-
-const DAYS_OF_WEEK = [
-  { label: "Sunday", value: "0" },
-  { label: "Monday", value: "1" },
-  { label: "Tuesday", value: "2" },
-  { label: "Wednesday", value: "3" },
-  { label: "Thursday", value: "4" },
-  { label: "Friday", value: "5" },
-  { label: "Saturday", value: "6" },
-];
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface TaskSheetProps {
   open: boolean;
@@ -66,6 +58,24 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
   const [subtaskName, setSubtaskName] = useState("");
   const [showSubtasks, setShowSubtasks] = useState(true);
 
+  const { data: subtasks = [], isLoading: isLoadingSubtasks } = useQuery({
+    queryKey: ['subtasks', task?.id],
+    queryFn: async () => {
+      if (!task?.id) return [];
+      
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('parent_task_id', task.id)
+        .eq('is_subtask', true)
+        .order('position');
+
+      if (error) throw error;
+      return data as Task[];
+    },
+    enabled: !!task?.id
+  });
+
   useEffect(() => {
     if (task) {
       setFormData({
@@ -92,63 +102,21 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-
-    if (!session?.user?.id) {
-      toast({
-        title: "Error",
-        description: "You must be logged in to create tasks",
-        variant: "destructive",
-      });
-      return;
-    }
+    if (!session?.user?.id) return;
 
     try {
-      const { data: existingTasks } = await supabase
-        .from("tasks")
-        .select("position, priority")
-        .eq(projectId ? "project_id" : "user_id", projectId || session.user.id)
-        .eq("completed", false)
-        .order("priority", { ascending: false })
-        .order("position");
-
-      const priorityOrder = { High: 3, Medium: 2, Low: 1 };
-      const newTaskPriority = priorityOrder[formData.priority as keyof typeof priorityOrder] || 0;
-      
-      let newPosition = 0;
-      if (existingTasks && existingTasks.length > 0) {
-        const lastSameOrHigherPriorityTask = existingTasks.find(t => 
-          (priorityOrder[t.priority as keyof typeof priorityOrder] || 0) <= newTaskPriority
-        );
-
-        if (lastSameOrHigherPriorityTask) {
-          newPosition = lastSameOrHigherPriorityTask.position + 1;
-          
-          const { error: updateError } = await supabase
-            .from("tasks")
-            .update({ position: newPosition })
-            .gte("position", newPosition)
-            .eq(projectId ? "project_id" : "user_id", projectId || session.user.id)
-            .eq("completed", false);
-            
-          if (updateError) throw updateError;
-        } else {
-          newPosition = existingTasks.length;
-        }
-      }
-
       const taskData = {
         name: formData.name.trim(),
         description: formData.description?.trim() || null,
         priority: formData.priority as "Low" | "Medium" | "High",
         type: formData.type,
-        due_date: formData.type === "Todo" ? formData.dueDate : new Date().toISOString().split('T')[0],
-        due_time: formData.type === "Todo" ? formData.dueTime + ":00" : formData.dueTime + ":00",
+        due_date: formData.dueDate,
+        due_time: formData.dueTime + ":00",
         recurring_days: formData.type === "Recurring" ? formData.recurringDays : [],
         user_id: session.user.id,
         project_id: projectId || null,
-        position: newPosition,
-        completed: false
+        is_subtask: false,
+        parent_task_id: null
       };
 
       if (task) {
@@ -158,115 +126,30 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
           .eq("id", task.id);
 
         if (error) throw error;
-
-        toast({
-          title: "Task Updated",
-          description: "Task has been updated successfully",
-        });
+        toast({ title: "Task updated successfully" });
       } else {
         const { error } = await supabase
           .from("tasks")
           .insert([taskData]);
 
         if (error) throw error;
-
-        toast({
-          title: "Task Created",
-          description: "Task has been created successfully",
-        });
+        toast({ title: "Task created successfully" });
       }
 
-      setFormData({
-        name: "",
-        description: "",
-        priority: "",
-        type: "Todo",
-        dueDate: "",
-        dueTime: "12:00",
-        recurringDays: [],
-      });
-
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
       onOpenChange(false);
-      if (onTaskUpdate) {
-        onTaskUpdate();
-      }
-      if (onClose) {
-        onClose();
-      }
+      if (onTaskUpdate) onTaskUpdate();
+      if (onClose) onClose();
     } catch (error: any) {
       console.error("Error managing task:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to manage task",
+        description: error.message,
         variant: "destructive",
       });
     }
   };
-
-  const handleDelete = async () => {
-    if (!task?.id) return;
-
-    try {
-      const { error } = await supabase
-        .from("tasks")
-        .delete()
-        .eq("id", task.id);
-
-      if (error) throw error;
-
-      toast({
-        title: "Task Deleted",
-        description: "Task has been deleted successfully",
-      });
-
-      onOpenChange(false);
-      if (onTaskUpdate) {
-        onTaskUpdate();
-      }
-    } catch (error: any) {
-      console.error("Error deleting task:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete task",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const toggleRecurringDay = (day: string) => {
-    setFormData(prev => ({
-      ...prev,
-      recurringDays: prev.recurringDays.includes(day)
-        ? prev.recurringDays.filter(d => d !== day)
-        : [...prev.recurringDays, day]
-    }));
-  };
-
-  const handleSelectAllDays = () => {
-    if (formData.recurringDays.length === DAYS_OF_WEEK.length) {
-      setFormData(prev => ({ ...prev, recurringDays: [] }));
-    } else {
-      setFormData(prev => ({ ...prev, recurringDays: DAYS_OF_WEEK.map(day => day.value) }));
-    }
-  };
-
-  const { data: subtasks = [] } = useQuery({
-    queryKey: ['subtasks', task?.id],
-    queryFn: async () => {
-      if (!task?.id) return [];
-      
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('parent_task_id', task.id)
-        .eq('is_subtask', true)
-        .order('position');
-
-      if (error) throw error;
-      return data as Task[];
-    },
-    enabled: !!task?.id
-  });
 
   const handleCreateSubtask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -280,7 +163,7 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
         .order("position", { ascending: false })
         .limit(1);
 
-      const nextPosition = tasksData && tasksData[0] ? tasksData[0].position + 1 : 0;
+      const nextPosition = tasksData && tasksData[0] ? tasksData[0].position + 1000 : 0;
 
       const { data, error } = await supabase
         .from('tasks')
@@ -292,7 +175,7 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
           priority: formData.priority || "Medium",
           type: "Todo",
           due_date: formData.dueDate,
-          due_time: formData.dueTime,
+          due_time: formData.dueTime + ":00",
           position: nextPosition,
           completed: false,
         })
@@ -302,18 +185,15 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: ['subtasks', task.id] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
       setSubtaskName("");
       setShowSubtaskInput(false);
-      toast({
-        title: "Success",
-        description: "Subtask created successfully",
-      });
+      toast({ title: "Subtask created successfully" });
     } catch (error: any) {
       console.error("Error creating subtask:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to create subtask",
+        description: error.message,
         variant: "destructive",
       });
     }
@@ -329,16 +209,37 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: ['subtasks', task?.id] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
       toast({
-        title: "Success",
-        description: `Subtask ${completed ? "completed" : "uncompleted"}`,
+        title: completed ? "Subtask completed" : "Subtask uncompleted"
       });
     } catch (error: any) {
       console.error("Error updating subtask:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to update subtask",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteSubtask = async (subtaskId: string) => {
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', subtaskId);
+
+      if (error) throw error;
+
+      queryClient.invalidateQueries({ queryKey: ['subtasks', task?.id] });
+      queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
+      toast({ title: "Subtask deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting subtask:", error);
+      toast({
+        title: "Error",
+        description: error.message,
         variant: "destructive",
       });
     }
@@ -444,56 +345,6 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
                 </>
               )}
 
-              {formData.type === "Recurring" && (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>Recurring Days</Label>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {DAYS_OF_WEEK.map((day) => (
-                        <div
-                          key={day.value}
-                          className="flex items-center space-x-2"
-                        >
-                          <Checkbox
-                            id={`day-${day.value}`}
-                            checked={formData.recurringDays.includes(day.value)}
-                            onCheckedChange={(checked) => {
-                              setFormData({
-                                ...formData,
-                                recurringDays: checked
-                                  ? [...formData.recurringDays, day.value]
-                                  : formData.recurringDays.filter(
-                                      (d) => d !== day.value
-                                    ),
-                              });
-                            }}
-                          />
-                          <label
-                            htmlFor={`day-${day.value}`}
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                          >
-                            {day.label}
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Time</Label>
-                    <Input
-                      type="time"
-                      value={formData.dueTime}
-                      onChange={(e) =>
-                        setFormData({ ...formData, dueTime: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                </>
-              )}
-
               {task && !task.is_subtask && (
                 <div className="space-y-4 mt-6">
                   <div className="flex items-center justify-between">
@@ -533,27 +384,39 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
                       {subtasks.length} Subtasks
                     </CollapsibleTrigger>
                     <CollapsibleContent className="mt-2">
-                      <div className="space-y-2">
-                        {subtasks.map((subtask) => (
-                          <div
-                            key={subtask.id}
-                            className="flex items-center gap-2 p-2 rounded-md hover:bg-accent"
-                          >
-                            <Checkbox
-                              checked={subtask.completed}
-                              onCheckedChange={(checked) =>
-                                handleToggleSubtask(subtask.id, checked as boolean)
-                              }
-                            />
-                            <span className={cn(
-                              "text-sm",
-                              subtask.completed && "line-through text-muted-foreground"
-                            )}>
-                              {subtask.name}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                      <ScrollArea className="h-[200px] pr-4">
+                        <div className="space-y-2">
+                          {subtasks.map((subtask) => (
+                            <div
+                              key={subtask.id}
+                              className="flex items-center justify-between gap-2 p-2 rounded-md hover:bg-accent"
+                            >
+                              <div className="flex items-center gap-2 flex-1">
+                                <Checkbox
+                                  checked={subtask.completed}
+                                  onCheckedChange={(checked) =>
+                                    handleToggleSubtask(subtask.id, checked as boolean)
+                                  }
+                                />
+                                <span className={cn(
+                                  "text-sm",
+                                  subtask.completed && "line-through text-muted-foreground"
+                                )}>
+                                  {subtask.name}
+                                </span>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteSubtask(subtask.id)}
+                                className="h-8 w-8"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
                     </CollapsibleContent>
                   </Collapsible>
                 </div>
@@ -587,12 +450,14 @@ const TaskSheet = ({ open, onOpenChange, task, onTaskUpdate, onTaskDelete, proje
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the task
-              {task?.is_subtask ? "" : " and all its subtasks"}.
+              {!task?.is_subtask ? " and all its subtasks" : ""}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+            <AlertDialogAction onClick={() => task?.id && onTaskDelete?.(task.id)}>
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

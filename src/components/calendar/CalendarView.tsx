@@ -70,7 +70,9 @@ const TaskCard = ({
   onTaskComplete?: (taskId: string, isProjectTask: boolean, completed: boolean) => void;
   onTaskClick?: (task: Task | ProjectTask) => void;
 }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
   const timeString = task.due_date ? format(new Date(task.due_date), "H:mm") : "";
+  const hasSubtasks = 'subtasks' in task && task.subtasks && task.subtasks.length > 0;
   
   return (
     <Draggable draggableId={task.id} index={index}>
@@ -85,10 +87,31 @@ const TaskCard = ({
             'bg-accent/50 hover:bg-accent',
             snapshot.isDragging && 'shadow-lg'
           )}
-          onClick={() => onTaskClick?.(task)}
         >
           <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium">{task.name}</span>
+            <div 
+              className="flex items-center justify-between"
+              onClick={() => onTaskClick?.(task)}
+            >
+              <span className="text-sm font-medium">{task.name}</span>
+              {hasSubtasks && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsExpanded(!isExpanded);
+                  }}
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+            </div>
             {timeString && (
               <div className="text-xs text-muted-foreground">{timeString}</div>
             )}
@@ -111,6 +134,33 @@ const TaskCard = ({
                 {getTaskTypeLabel(task)}
               </Badge>
             </div>
+            
+            {isExpanded && 'subtasks' in task && task.subtasks && (
+              <div className="mt-2 pl-4 space-y-1 border-l-2 border-border">
+                {task.subtasks.map((subtask: Task) => (
+                  <div
+                    key={subtask.id}
+                    className="flex items-center justify-between py-1"
+                  >
+                    <div className="flex items-center gap-2 flex-1">
+                      <Checkbox
+                        checked={subtask.completed}
+                        onCheckedChange={(checked) => {
+                          onTaskComplete?.(subtask.id, false, checked as boolean);
+                        }}
+                        className="h-3 w-3"
+                      />
+                      <span className={cn(
+                        "text-xs",
+                        subtask.completed && "line-through text-muted-foreground"
+                      )}>
+                        {subtask.name}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
