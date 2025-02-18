@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { format, isSameDay, parse } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,32 +37,30 @@ const TodayTasks = () => {
       // First, get all parent tasks for today
       const { data: parentTasks, error: parentError } = await supabase
         .from('tasks')
-        .select('*')
+        .select(`
+          *,
+          subtasks:tasks(*)
+        `)
         .eq('user_id', session.user.id)
         .eq('due_date', format(today, 'yyyy-MM-dd'))
-        .is('is_subtask', false)
+        .eq('is_subtask', false)
         .order('position');
 
-      if (parentError) throw parentError;
+      if (parentError) {
+        console.error('Error fetching parent tasks:', parentError);
+        throw parentError;
+      }
 
-      // Then get all subtasks for these parent tasks
-      const parentIds = parentTasks.map(task => task.id);
-      const { data: subtasks, error: subtasksError } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .in('parent_task_id', parentIds)
-        .is('is_subtask', true);
-
-      if (subtasksError) throw subtasksError;
-
-      // Combine the tasks with their subtasks
-      return parentTasks.map(task => ({
+      return (parentTasks || []).map(task => ({
         ...task,
         priority: task.priority as "Low" | "Medium" | "High",
         type: task.type as "Todo" | "Recurring" | "Project",
-        subtasks: subtasks.filter(subtask => subtask.parent_task_id === task.id) || []
-      })) as Task[];
+        subtasks: (task.subtasks || []).map((subtask: any) => ({
+          ...subtask,
+          priority: subtask.priority as "Low" | "Medium" | "High",
+          type: subtask.type as "Todo" | "Recurring" | "Project"
+        }))
+      }));
     },
     enabled: !!session?.user?.id
   });
