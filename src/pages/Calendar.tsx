@@ -10,7 +10,6 @@ import CalendarView from "@/components/calendar/CalendarView";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import CreateTaskDialog from "@/components/tasks/CreateTaskDialog";
-import { useAuth } from "@/hooks/use-auth"; // Fixed import path
 
 type ViewType = "day" | "week" | "month";
 
@@ -19,42 +18,25 @@ const Calendar = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const { session } = useAuth();
   const queryClient = useQueryClient();
 
   // Fetch regular tasks
   const { data: tasks = [] } = useQuery({
     queryKey: ['calendar-tasks'],
     queryFn: async () => {
-      if (!session?.user?.id) return [];
-
       const { data, error } = await supabase
         .from("tasks")
-        .select(`
-          *,
-          subtasks:tasks(*)
-        `)
-        .eq('user_id', session.user.id)
-        .eq('is_subtask', false)
-        .order('position');
+        .select("*")
+        .order("position", { ascending: true });
 
-      if (error) {
-        console.error('Error fetching tasks:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      return (data || []).map(task => ({
+      return data.map(task => ({
         ...task,
         priority: task.priority as "Low" | "Medium" | "High",
-        type: task.type as "Todo" | "Project" | "Recurring",
-        subtasks: (task.subtasks || []).map((subtask: any) => ({
-          ...subtask,
-          priority: subtask.priority as "Low" | "Medium" | "High",
-          type: subtask.type as "Todo" | "Project" | "Recurring"
-        }))
-      }));
-    },
-    enabled: !!session?.user?.id
+        type: task.type as "Todo" | "Project" | "Recurring"
+      })) as Task[];
+    }
   });
 
   // Fetch project tasks
