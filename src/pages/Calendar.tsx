@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus } from "lucide-react";
@@ -9,7 +10,7 @@ import CalendarView from "@/components/calendar/CalendarView";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import CreateTaskDialog from "@/components/tasks/CreateTaskDialog";
-import { useAuth } from "@/hooks/auth";
+import { useAuth } from "@/hooks/use-auth"; // Fixed import path
 
 type ViewType = "day" | "week" | "month";
 
